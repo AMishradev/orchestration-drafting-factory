@@ -29,8 +29,14 @@ import {
 } from "./research-agent";
 import { ComposioSlackSendAgent } from "./composio-slack-send-agent";
 import { MockSendAgent, type SendAgent } from "./send-agent";
+import { bearerToken, tokenMatches } from "./auth";
+import {
+  RunnerRoleSchema,
+  runnerCanHandle,
+  type RunnerRole,
+} from "./runner-role";
 
-type RunnerSocketData = { connectedAt: string };
+type RunnerSocketData = { connectedAt: string; role: RunnerRole };
 
 type StoredSession = {
   sessionId: string;
@@ -43,6 +49,7 @@ type StoredSession = {
 export type RunnerServer = {
   server: Bun.Server<RunnerSocketData>;
   url: string;
+  role: RunnerRole;
   researchEngine: ResearchAgent["kind"];
   draftingEngine: DraftingAgent["kind"];
   criticEngine: CriticAgent["kind"];
@@ -55,12 +62,16 @@ export type RunnerOptions = {
   draftingAgent?: DraftingAgent;
   criticAgent?: CriticAgent;
   sendAgent?: SendAgent;
+  role?: RunnerRole;
+  hostname?: string;
+  authToken?: string;
 };
 
 export function startRunnerServer(
   port = 4101,
   options: RunnerOptions = {},
 ): RunnerServer {
+  const role = RunnerRoleSchema.parse(options.role ?? "all");
   const engine = new MockAgentEngine();
   const researchAgent =
     options.researchAgent ??
@@ -92,7 +103,7 @@ export function startRunnerServer(
   const sessions = new Map<string, StoredSession>();
 
   const server = Bun.serve<RunnerSocketData>({
-    hostname: "127.0.0.1",
+    hostname: options.hostname ?? "127.0.0.1",
     port,
     fetch(request, server) {
       const url = new URL(request.url);
@@ -101,6 +112,7 @@ export function startRunnerServer(
         return Response.json({
           status: "ok",
           service: "runner",
+          role,
           researchEngine: researchAgent.kind,
           draftingEngine: draftingAgent.kind,
           criticEngine: criticAgent.kind,
@@ -109,8 +121,13 @@ export function startRunnerServer(
       }
 
       if (url.pathname === "/ws") {
+        const suppliedToken =
+          url.searchParams.get("token") ?? bearerToken(request);
+        if (!tokenMatches(suppliedToken, options.authToken)) {
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
         const upgraded = server.upgrade(request, {
-          data: { connectedAt: new Date().toISOString() },
+          data: { connectedAt: new Date().toISOString(), role },
         });
         if (upgraded) return;
       }
@@ -150,6 +167,22 @@ export function startRunnerServer(
       workflowId: command.workflowId,
       runId: command.runId,
     });
+
+    if (!runnerCanHandle(role, command)) {
+      send(socket, {
+        type: "run.failed",
+        workflowId: command.workflowId,
+        runId: command.runId,
+        sessionId:
+          command.type === "run.feedback"
+            ? command.targetSessionId
+            : command.sessionId,
+        stage: command.type === "run.feedback" ? "drafting" : command.stage,
+        attempt: command.attempt,
+        error: `Runner role ${role} cannot execute this command`,
+      });
+      return;
+    }
 
     if (command.type === "run.feedback") {
       await applyFeedback(socket, command);
@@ -310,6 +343,7 @@ export function startRunnerServer(
   return {
     server,
     url: `ws://127.0.0.1:${server.port}/ws`,
+    role,
     researchEngine: researchAgent.kind,
     draftingEngine: draftingAgent.kind,
     criticEngine: criticAgent.kind,

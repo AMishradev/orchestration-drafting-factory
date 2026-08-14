@@ -1,0 +1,17 @@
+[Unit]
+Description=Outbound Factory orchestrator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=exedev
+WorkingDirectory=/home/exedev/outbound-factory
+EnvironmentFile=/home/exedev/outbound-factory/.env
+ExecStart=/home/exedev/.bun/bin/bun src/orchestrator-main.ts
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

@@ -15,6 +15,15 @@ import {
   type WorkflowState,
 } from "./contracts";
 import { EventHub, formatSse } from "./event-hub";
+import { bearerToken, tokenMatches } from "./auth";
+import { RunnerConnection } from "./runner-connection";
+import {
+  RemoteRunnerRoleSchema,
+  endpointMapFromSingleUrl,
+  runnerRoleForStage,
+  type RemoteRunnerRole,
+  type RunnerEndpointMap,
+} from "./runner-role";
 
 const terminalStatuses = new Set([
   "sent",
@@ -26,25 +35,41 @@ const terminalStatuses = new Set([
 export class FactoryOrchestrator {
   readonly events = new EventHub();
   private readonly workflows = new Map<string, WorkflowState>();
-  private readonly socket: WebSocket;
+  private readonly connections: Record<RemoteRunnerRole, RunnerConnection>;
   private readonly socketReady: Promise<void>;
+  private readonly activeRuns = new Map<
+    string,
+    { workflowId: string; role: RemoteRunnerRole }
+  >();
 
   constructor(
-    runnerUrl: string,
+    runnerTarget: string | RunnerEndpointMap,
     private readonly maxDraftAttempts = 3,
+    runnerAuthToken?: string,
   ) {
-    this.socket = new WebSocket(runnerUrl);
-    this.socketReady = new Promise((resolve, reject) => {
-      this.socket.addEventListener("open", () => resolve(), { once: true });
-      this.socket.addEventListener(
-        "error",
-        () => reject(new Error(`Unable to connect to runner at ${runnerUrl}`)),
-        { once: true },
-      );
-    });
-    this.socket.addEventListener("message", (event) => {
-      void this.handleRunnerEvent(String(event.data));
-    });
+    const endpoints =
+      typeof runnerTarget === "string"
+        ? endpointMapFromSingleUrl(runnerTarget)
+        : runnerTarget;
+    this.connections = Object.fromEntries(
+      RemoteRunnerRoleSchema.options.map((role) => [
+        role,
+        new RunnerConnection({
+          role,
+          url: endpoints[role],
+          authToken: runnerAuthToken,
+          onMessage: (eventRole, rawEvent) => {
+            void this.handleRunnerEvent(eventRole, rawEvent);
+          },
+          onDisconnect: (eventRole, reason) => {
+            this.handleRunnerDisconnect(eventRole, reason);
+          },
+        }),
+      ]),
+    ) as Record<RemoteRunnerRole, RunnerConnection>;
+    this.socketReady = Promise.all(
+      Object.values(this.connections).map((connection) => connection.ready()),
+    ).then(() => undefined);
   }
 
   ready(): Promise<void> {
@@ -81,11 +106,35 @@ export class FactoryOrchestrator {
   }
 
   stop() {
-    this.socket.close();
+    for (const connection of Object.values(this.connections)) {
+      connection.stop();
+    }
   }
 
-  private send(command: unknown) {
-    this.socket.send(JSON.stringify(command));
+  runnerStates(): Record<RemoteRunnerRole, string> {
+    return Object.fromEntries(
+      Object.entries(this.connections).map(([role, connection]) => [
+        role,
+        connection.state,
+      ]),
+    ) as Record<RemoteRunnerRole, string>;
+  }
+
+  private dispatch(
+    workflow: WorkflowState,
+    role: RemoteRunnerRole,
+    command: { runId: string },
+  ): void {
+    this.activeRuns.set(command.runId, { workflowId: workflow.id, role });
+    void this.connections[role].send(command).catch((error) => {
+      this.activeRuns.delete(command.runId);
+      this.fail(
+        workflow,
+        `Unable to dispatch to ${role} runner: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    });
   }
 
   private startStage(workflow: WorkflowState, stage: Stage, input: unknown) {
@@ -122,7 +171,7 @@ export class FactoryOrchestrator {
       sessionId: command.sessionId,
       attempt: command.attempt,
     });
-    this.send(command);
+    this.dispatch(workflow, runnerRoleForStage(stage), command);
   }
 
   private sendFeedback(
@@ -166,10 +215,13 @@ export class FactoryOrchestrator {
       attempt: command.attempt,
       issues: verdict.issues,
     });
-    this.send(command);
+    this.dispatch(workflow, "drafting", command);
   }
 
-  private async handleRunnerEvent(rawEvent: string) {
+  private async handleRunnerEvent(
+    runnerRole: RemoteRunnerRole,
+    rawEvent: string,
+  ) {
     let event;
     try {
       event = RunnerEventSchema.parse(JSON.parse(rawEvent));
@@ -179,6 +231,15 @@ export class FactoryOrchestrator {
 
     const workflow = this.workflows.get(event.workflowId);
     if (!workflow || terminalStatuses.has(workflow.status)) return;
+
+    const activeRun = this.activeRuns.get(event.runId);
+    if (activeRun && activeRun.role !== runnerRole) {
+      this.fail(
+        workflow,
+        `Received run ${event.runId} from unexpected ${runnerRole} runner`,
+      );
+      return;
+    }
 
     if (event.type === "command.acknowledged") {
       this.publish(workflow, "command.acknowledged", {
@@ -219,9 +280,20 @@ export class FactoryOrchestrator {
     }
 
     if (event.type === "run.failed") {
+      this.activeRuns.delete(event.runId);
       this.fail(workflow, event.error);
       return;
     }
+
+    if (runnerRoleForStage(event.stage) !== runnerRole) {
+      this.activeRuns.delete(event.runId);
+      this.fail(
+        workflow,
+        `Stage ${event.stage} completed on unexpected ${runnerRole} runner`,
+      );
+      return;
+    }
+    this.activeRuns.delete(event.runId);
 
     this.publish(workflow, "agent.completed", {
       stage: event.stage,
@@ -336,6 +408,7 @@ export class FactoryOrchestrator {
   }
 
   private fail(workflow: WorkflowState, error: string) {
+    if (terminalStatuses.has(workflow.status)) return;
     workflow.status = "failed";
     workflow.lastError = error;
     workflow.updatedAt = new Date().toISOString();
@@ -345,6 +418,24 @@ export class FactoryOrchestrator {
   private publish(workflow: WorkflowState, type: string, data: unknown) {
     workflow.updatedAt = new Date().toISOString();
     this.events.publish(workflow.id, type, data);
+  }
+
+  private handleRunnerDisconnect(
+    role: RemoteRunnerRole,
+    reason: string,
+  ): void {
+    const affectedWorkflowIds = new Set<string>();
+    for (const [runId, activeRun] of this.activeRuns) {
+      if (activeRun.role !== role) continue;
+      affectedWorkflowIds.add(activeRun.workflowId);
+      this.activeRuns.delete(runId);
+    }
+    for (const workflowId of affectedWorkflowIds) {
+      const workflow = this.workflows.get(workflowId);
+      if (workflow) {
+        this.fail(workflow, `${role} runner disconnected: ${reason}`);
+      }
+    }
   }
 }
 
@@ -357,23 +448,40 @@ export type OrchestratorServer = {
 
 export async function startOrchestratorServer(args: {
   port?: number;
-  runnerUrl: string;
+  hostname?: string;
+  runnerUrl?: string;
+  runnerUrls?: RunnerEndpointMap;
+  runnerAuthToken?: string;
+  apiToken?: string;
   maxDraftAttempts?: number;
 }): Promise<OrchestratorServer> {
+  const runnerTarget = args.runnerUrls ?? args.runnerUrl;
+  if (!runnerTarget) throw new Error("Runner URL configuration is required");
   const orchestrator = new FactoryOrchestrator(
-    args.runnerUrl,
+    runnerTarget,
     args.maxDraftAttempts,
+    args.runnerAuthToken,
   );
   await orchestrator.ready();
 
   const server = Bun.serve({
-    hostname: "127.0.0.1",
+    hostname: args.hostname ?? "127.0.0.1",
     port: args.port ?? 4100,
     async fetch(request, server) {
       const url = new URL(request.url);
 
       if (request.method === "GET" && url.pathname === "/health") {
-        return Response.json({ status: "ok", service: "orchestrator" });
+        return Response.json({
+          status: "ok",
+          service: "orchestrator",
+          runners: orchestrator.runnerStates(),
+        });
+      }
+
+      if (
+        !tokenMatches(bearerToken(request), args.apiToken)
+      ) {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
       }
 
       if (request.method === "GET" && url.pathname === "/workflows") {

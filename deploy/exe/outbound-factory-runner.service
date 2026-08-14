@@ -1,0 +1,18 @@
+[Unit]
+Description=Outbound Factory role runner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=exedev
+WorkingDirectory=/home/exedev/outbound-factory
+EnvironmentFile=/home/exedev/outbound-factory/.env
+EnvironmentFile=-/home/exedev/.config/composio/env
+ExecStart=/home/exedev/.bun/bin/bun src/runner-main.ts
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

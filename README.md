@@ -34,6 +34,40 @@ To run the long-lived API:
 bun run start
 ```
 
+### Distributed exe.dev mode
+
+The local command above keeps all roles on one machine. The distributed mode
+uses a central orchestrator plus separate authenticated WebSocket runners for
+research, drafting, evaluation, and send. Each runner declares `RUNNER_ROLE`
+and rejects commands for every other role. Review and deep review currently
+share the critic runner because they are still deterministic mocks.
+
+Remote entrypoints are:
+
+```bash
+bun run start:runner
+bun run start:orchestrator
+```
+
+The orchestrator routes stages as follows:
+
+```text
+research                    → research runner
+drafting + run.feedback     → drafting runner
+review + critic + deep_review → critic runner
+send                        → send runner
+```
+
+Runner WebSockets use `RUNNER_AUTH_TOKEN` or `RUNNER_AUTH_TOKEN_FILE`. Public
+workflow APIs use a separate `ORCHESTRATOR_API_TOKEN` or token file. The
+orchestrator maintains one reconnecting socket per role and fails an in-flight
+workflow if its active runner disconnects; subsequent workflows use the
+reconnected socket. SSE remains an outward observer stream and is not used for
+agent-to-agent communication.
+
+See `deploy/exe/README.md` for the five-VM topology, secret boundaries,
+systemd installation, health checks, and authenticated curl commands.
+
 To run with real Pi drafting and critic agents:
 
 ```bash
@@ -221,6 +255,10 @@ curl -N http://127.0.0.1:4100/workflows/WORKFLOW_ID/events
 
 - `src/orchestrator.ts`: workflow state machine, WebSocket client, feedback routing, HTTP and SSE endpoints.
 - `src/runner.ts`: WebSocket server and session registry.
+- `src/runner-role.ts`: stage-to-runner routing and role authorization.
+- `src/runner-connection.ts`: authenticated remote WebSocket lifecycle and reconnection.
+- `src/runner-main.ts`: role-scoped remote runner entrypoint.
+- `src/orchestrator-main.ts`: distributed orchestrator entrypoint.
 - `src/mock-agent.ts`: deterministic research, drafting, review, critic, and deep-review behavior.
 - `src/research-agent.ts`: research interface and mock implementation.
 - `src/composio-research-agent.ts`: legacy concurrent source execution plus the shared Composio SDK executor.
@@ -244,8 +282,8 @@ curl -N http://127.0.0.1:4100/workflows/WORKFLOW_ID/events
 
 - State is in memory; restarting either process loses active workflows.
 - Orchestrator and runner start in the same OS process for easy local testing, though they still communicate over WebSocket.
-- There is one generic runner rather than one runner per VM.
-- No WebSocket reconnection or command redelivery yet.
+- `bun run start` still uses one local generic runner; the exe.dev deployment uses four role-scoped runner VMs.
+- Remote WebSockets reconnect automatically, but commands running during a disconnect are failed rather than redelivered until durable Postgres checkpoints exist.
 - Review and deep review remain mocked. Research, drafting, critic, and send are selected independently with `RESEARCH_ENGINE=mock|composio|pi-composio`, `DRAFTING_ENGINE=mock|pi`, `CRITIC_ENGINE=mock|pi`, and `SEND_ENGINE=mock|composio-slack`.
 - The v0 delivery target is a Slack DM to Archit; it does not send the outbound email to the prospect yet.
 
