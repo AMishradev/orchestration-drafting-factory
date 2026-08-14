@@ -92,6 +92,8 @@ export class FactoryOrchestrator {
     if (stage === "drafting") {
       workflow.draftAttempt += 1;
       workflow.draftingSessionId ??= `draft-${workflow.id}`;
+    } else if (stage === "critic") {
+      workflow.criticSessionId ??= `critic-${workflow.id}`;
     }
 
     const command = StartRunCommandSchema.parse({
@@ -103,6 +105,8 @@ export class FactoryOrchestrator {
       sessionId:
         stage === "drafting"
           ? workflow.draftingSessionId
+          : stage === "critic"
+            ? workflow.criticSessionId
           : `${stage}-${workflow.id}-${crypto.randomUUID()}`,
       stage,
       input,

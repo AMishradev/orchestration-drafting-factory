@@ -48,6 +48,9 @@ export class MockAgentEngine {
     const { request, research } = args.input;
     const mainSignal = research.signals[0];
     if (!mainSignal) throw new Error("Research did not include a usable signal");
+    const mustRemoveFair = args.feedback.issues.some(
+      ({ code }) => code === "FORBIDDEN_WORD_FAIR",
+    );
 
     return DraftResultSchema.parse({
       revision: args.previousDraft.revision + 1,
@@ -56,6 +59,9 @@ export class MockAgentEngine {
         `Hi ${request.prospect.firstName},`,
         "",
         `I noticed ${mainSignal.claim.toLowerCase()}.`,
+        ...(mustRemoveFair
+          ? []
+          : ["It seems fair to answer such a launch with a sharper outbound campaign."]),
         `We help ${request.prospect.title.toLowerCase()} leaders turn signals like that into focused outbound without relying on unsupported personalization.`,
         "",
         "Worth comparing notes?",

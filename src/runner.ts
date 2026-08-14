@@ -1,6 +1,7 @@
 import {
   DraftResultSchema,
   DraftingInputSchema,
+  EvaluationInputSchema,
   RunnerCommandSchema,
   RunnerEventSchema,
   type FeedbackCommand,
@@ -8,11 +9,16 @@ import {
   type Stage,
 } from "./contracts";
 import {
+  MockCriticAgent,
+  type CriticAgent,
+} from "./critic-agent";
+import {
   MockDraftingAgent,
   type DraftingAgent,
 } from "./drafting-agent";
 import { MockAgentEngine } from "./mock-agent";
 import { PiRpcDraftingAgent } from "./pi-drafting-agent";
+import { PiRpcCriticAgent } from "./pi-critic-agent";
 
 type RunnerSocketData = { connectedAt: string };
 
@@ -28,11 +34,13 @@ export type RunnerServer = {
   server: Bun.Server<RunnerSocketData>;
   url: string;
   draftingEngine: DraftingAgent["kind"];
+  criticEngine: CriticAgent["kind"];
   stop: () => Promise<void>;
 };
 
 export type RunnerOptions = {
   draftingAgent?: DraftingAgent;
+  criticAgent?: CriticAgent;
 };
 
 export function startRunnerServer(
@@ -45,6 +53,11 @@ export function startRunnerServer(
     (Bun.env.DRAFTING_ENGINE === "pi"
       ? new PiRpcDraftingAgent()
       : new MockDraftingAgent(engine));
+  const criticAgent =
+    options.criticAgent ??
+    (Bun.env.CRITIC_ENGINE === "pi"
+      ? new PiRpcCriticAgent()
+      : new MockCriticAgent(engine));
   const sessions = new Map<string, StoredSession>();
 
   const server = Bun.serve<RunnerSocketData>({
@@ -58,6 +71,7 @@ export function startRunnerServer(
           status: "ok",
           service: "runner",
           draftingEngine: draftingAgent.kind,
+          criticEngine: criticAgent.kind,
         });
       }
 
@@ -127,24 +141,32 @@ export function startRunnerServer(
     });
 
     try {
+      const onProgress = (event: unknown) =>
+        send(socket, {
+          type: "agent.progress",
+          workflowId: command.workflowId,
+          runId: command.runId,
+          sessionId: command.sessionId,
+          stage: command.stage,
+          attempt: command.attempt,
+          event,
+        });
       const result =
         command.stage === "drafting"
           ? await draftingAgent.draft({
               sessionId: command.sessionId,
               input: DraftingInputSchema.parse(command.input),
               attempt: command.attempt,
-              onProgress: (event) =>
-                send(socket, {
-                  type: "agent.progress",
-                  workflowId: command.workflowId,
-                  runId: command.runId,
-                  sessionId: command.sessionId,
-                  stage: "drafting",
-                  attempt: command.attempt,
-                  event,
-                }),
+              onProgress,
             })
-          : await engine.run(command.stage, command.input);
+          : command.stage === "critic"
+            ? await criticAgent.critique({
+                sessionId: command.sessionId,
+                input: EvaluationInputSchema.parse(command.input),
+                attempt: command.attempt,
+                onProgress,
+              })
+            : await engine.run(command.stage, command.input);
       session.output = result;
       send(socket, {
         type: "run.completed",
@@ -242,8 +264,12 @@ export function startRunnerServer(
     server,
     url: `ws://127.0.0.1:${server.port}/ws`,
     draftingEngine: draftingAgent.kind,
+    criticEngine: criticAgent.kind,
     stop: async () => {
-      await draftingAgent.disposeAll();
+      await Promise.all([
+        draftingAgent.disposeAll(),
+        criticAgent.disposeAll(),
+      ]);
       await server.stop(true);
     },
   };

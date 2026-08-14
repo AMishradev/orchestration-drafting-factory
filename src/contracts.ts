@@ -78,6 +78,21 @@ export const VerdictSchema = z.discriminatedUnion("decision", [
 export type Verdict = z.infer<typeof VerdictSchema>;
 export type RevisionVerdict = Extract<Verdict, { decision: "revise" }>;
 
+export const RecordedVerdictSchema = z.object({
+  stage: z.enum(["review", "critic", "deep_review"]),
+  attempt: z.number().int().positive(),
+  verdict: VerdictSchema,
+});
+
+export type RecordedVerdict = z.infer<typeof RecordedVerdictSchema>;
+
+export const EvaluationInputSchema = DraftingInputSchema.extend({
+  draft: DraftResultSchema,
+  priorVerdicts: z.array(RecordedVerdictSchema),
+});
+
+export type EvaluationInput = z.infer<typeof EvaluationInputSchema>;
+
 const CommandBaseSchema = z.object({
   messageId: z.string(),
   workflowId: z.string(),
@@ -170,12 +185,6 @@ export const WorkflowStatusSchema = z.enum([
 
 export type WorkflowStatus = z.infer<typeof WorkflowStatusSchema>;
 
-export type RecordedVerdict = {
-  stage: "review" | "critic" | "deep_review";
-  attempt: number;
-  verdict: Verdict;
-};
-
 export type WorkflowState = {
   id: string;
   status: WorkflowStatus;
@@ -186,6 +195,7 @@ export type WorkflowState = {
   draft?: DraftResult;
   verdicts: RecordedVerdict[];
   draftingSessionId?: string;
+  criticSessionId?: string;
   lastError?: string;
   createdAt: string;
   updatedAt: string;

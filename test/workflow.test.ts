@@ -15,7 +15,7 @@ afterEach(async () => {
 });
 
 describe("outbound factory feedback loop", () => {
-  test("routes a review rejection back to drafting and ultimately approves", async () => {
+  test("routes review and critic feedback back to drafting and ultimately approves", async () => {
     runner = startRunnerServer(43101);
     app = await startOrchestratorServer({ port: 43100, runnerUrl: runner.url });
 
@@ -43,20 +43,30 @@ describe("outbound factory feedback loop", () => {
     }
 
     expect(workflow?.status).toBe("approved");
-    expect(workflow?.draftAttempt).toBe(2);
-    expect(workflow?.draft?.revision).toBe(2);
+    expect(workflow?.draftAttempt).toBe(3);
+    expect(workflow?.draft?.revision).toBe(3);
     expect(workflow?.draft?.body).not.toContain("200 sales reps");
+    expect(workflow?.draft?.body.toLowerCase()).not.toMatch(/\bfair\b/);
     expect(workflow?.verdicts.map(({ verdict }) => verdict.decision)).toEqual([
+      "revise",
+      "approve",
       "revise",
       "approve",
       "approve",
       "approve",
     ]);
 
+    const fairIssue = workflow?.verdicts
+      .flatMap(({ verdict }) =>
+        verdict.decision === "revise" ? verdict.issues : [],
+      )
+      .find(({ code }) => code === "FORBIDDEN_WORD_FAIR");
+    expect(fairIssue).toBeDefined();
+
     const eventTypes = app.orchestrator.events
       .eventsFor(started.id)
       .map(({ type }) => type);
-    expect(eventTypes).toContain("feedback.routed");
+    expect(eventTypes.filter((type) => type === "feedback.routed")).toHaveLength(2);
     expect(eventTypes.at(-1)).toBe("workflow.approved");
   });
 

@@ -1,68 +1,56 @@
 import { z } from "zod";
 import {
-  DraftResultSchema,
-  DraftingInputSchema,
-  type DraftResult,
+  EvaluationInputSchema,
+  VerdictSchema,
+  type Verdict,
 } from "./contracts";
-import type {
-  DraftArgs,
-  DraftingAgent,
-  DraftingProgressHandler,
-  RevisionArgs,
-} from "./drafting-agent";
+import {
+  enforceCriticPolicy,
+  type CriticAgent,
+  type CriticArgs,
+  type CriticProgressHandler,
+} from "./critic-agent";
 import { defaultPiCommand } from "./pi-command";
 import { parsePiJson } from "./pi-json";
 import { PiRpcClient } from "./pi-rpc-client";
 
-type PiDraftingAgentOptions = {
+type PiCriticAgentOptions = {
   command?: string[] | ((sessionId: string) => string[]);
   timeoutMs?: number;
   validationAttempts?: number;
 };
 
-export class PiRpcDraftingAgent implements DraftingAgent {
+export class PiRpcCriticAgent implements CriticAgent {
   readonly kind = "pi-rpc" as const;
   private readonly sessions = new Map<string, PiRpcClient>();
   private readonly timeoutMs: number;
   private readonly validationAttempts: number;
 
-  constructor(private readonly options: PiDraftingAgentOptions = {}) {
+  constructor(private readonly options: PiCriticAgentOptions = {}) {
     this.timeoutMs = options.timeoutMs ?? 120_000;
     this.validationAttempts = options.validationAttempts ?? 2;
   }
 
-  async draft(args: DraftArgs): Promise<DraftResult> {
-    const input = DraftingInputSchema.parse(args.input);
+  async critique(args: CriticArgs): Promise<Verdict> {
+    const input = EvaluationInputSchema.parse(args.input);
     const prompt = [
-      "You are the drafting agent for a cold-email workflow.",
-      "Write a short outbound email in a whimsical tone, as if you are a medieval knight.",
-      "Use only the supplied research signals for personalized factual claims.",
-      "Return only valid JSON with this exact shape:",
-      '{"revision":1,"subject":"...","body":"...","evidenceSignalIds":["signal-id"]}',
+      "You are the critic agent for a cold-email workflow.",
+      "Evaluate the draft for clarity, concision, relevance, tone, and evidentiary support.",
+      'Hard rule: the standalone word "fair" is forbidden in the subject and body, regardless of capitalization.',
+      'If "fair" appears, return revise with issue code FORBIDDEN_WORD_FAIR and instruct drafting to remove or rewrite every occurrence.',
+      "Treat factual claims as supported only when their signal IDs exist in the supplied research.",
+      "Return only one valid JSON verdict using exactly one of these shapes:",
+      '{"decision":"approve","notes":["..."]}',
+      '{"decision":"revise","issues":[{"code":"...","message":"...","instruction":"...","severity":"warning|blocking"}]}',
+      '{"decision":"reject","reason":"..."}',
+      "Prefer revise for fixable problems and reject only when the email cannot be safely repaired.",
       "Do not wrap the JSON in Markdown fences.",
       "",
-      `Input: ${JSON.stringify(input)}`,
+      `Evaluation input: ${JSON.stringify(input)}`,
     ].join("\n");
 
-    return this.generate(args.sessionId, prompt, args.onProgress);
-  }
-
-  async revise(args: RevisionArgs): Promise<DraftResult> {
-    const input = DraftingInputSchema.parse(args.input);
-    const prompt = [
-      "Revise the previous outbound email using the review feedback.",
-      "Keep the whimsical medieval-knight tone.",
-      "Use only supplied research signals for factual claims.",
-      `Set revision to ${args.previousDraft.revision + 1}.`,
-      "Return only valid JSON with keys revision, subject, body, and evidenceSignalIds.",
-      "Do not wrap the JSON in Markdown fences.",
-      "",
-      `Input: ${JSON.stringify(input)}`,
-      `Previous draft: ${JSON.stringify(args.previousDraft)}`,
-      `Review feedback: ${JSON.stringify(args.feedback)}`,
-    ].join("\n");
-
-    return this.generate(args.sessionId, prompt, args.onProgress);
+    const verdict = await this.generate(args.sessionId, prompt, args.onProgress);
+    return enforceCriticPolicy(input, verdict);
   }
 
   async abort(sessionId: string): Promise<void> {
@@ -89,7 +77,7 @@ export class PiRpcDraftingAgent implements DraftingAgent {
     const command =
       typeof this.options.command === "function"
         ? this.options.command(sessionId)
-        : this.options.command ?? defaultPiCommand("drafting", sessionId);
+        : this.options.command ?? defaultPiCommand("critic", sessionId);
     const client = new PiRpcClient(command, this.timeoutMs);
     this.sessions.set(sessionId, client);
     return client;
@@ -98,8 +86,8 @@ export class PiRpcDraftingAgent implements DraftingAgent {
   private async generate(
     sessionId: string,
     initialPrompt: string,
-    onProgress?: DraftingProgressHandler,
-  ): Promise<DraftResult> {
+    onProgress?: CriticProgressHandler,
+  ): Promise<Verdict> {
     const client = this.getClient(sessionId);
     const unsubscribe = onProgress ? client.onEvent(onProgress) : () => {};
     let prompt = initialPrompt;
@@ -109,7 +97,7 @@ export class PiRpcDraftingAgent implements DraftingAgent {
         const text = await client.prompt(prompt);
 
         try {
-          return DraftResultSchema.parse(parsePiJson(text));
+          return VerdictSchema.parse(parsePiJson(text));
         } catch (error) {
           if (attempt === this.validationAttempts) throw error;
           const detail =
@@ -119,9 +107,9 @@ export class PiRpcDraftingAgent implements DraftingAgent {
                 ? error.message
                 : String(error);
           prompt = [
-            "Your previous response failed runtime validation.",
+            "Your previous verdict failed runtime validation.",
             `Validation error: ${detail}`,
-            "Return the corrected email as raw JSON only, with keys revision, subject, body, and evidenceSignalIds.",
+            "Return only a corrected raw JSON approve, revise, or reject verdict.",
           ].join("\n");
         }
       }
@@ -129,6 +117,6 @@ export class PiRpcDraftingAgent implements DraftingAgent {
       unsubscribe();
     }
 
-    throw new Error("Pi failed to produce a valid draft");
+    throw new Error("Pi failed to produce a valid critic verdict");
   }
 }
