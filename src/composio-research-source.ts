@@ -17,8 +17,16 @@ export type InternalResearchSource = Exclude<
 
 export const ComposioResearchConfigSchema = z.object({
   apiKey: z.string().min(1, "COMPOSIO_API_KEY is required"),
-  userId: z.string().min(1).default("default"),
+  userId: z.string().min(1, "COMPOSIO_USER_ID is required"),
   timeoutMs: z.number().int().positive().default(30_000),
+  connectedAccountIds: z.object({
+    slack: z.string().min(1).optional(),
+    granola: z.string().min(1).optional(),
+    fireflies: z.string().min(1).optional(),
+    salesforce: z.string().min(1).optional(),
+    posthog: z.string().min(1).optional(),
+    metabase: z.string().min(1).optional(),
+  }).default({}),
   posthogProjectId: z.string().min(1).optional(),
   metabaseCardId: z.number().int().positive().optional(),
   metabasePersonTag: z.string().min(1).default("person"),
@@ -34,6 +42,7 @@ export type ComposioResearchToolCall = {
   toolSlug: string;
   version: string;
   arguments: Record<string, unknown>;
+  connectedAccountId?: string;
 };
 
 export interface ResearchToolExecutor {
@@ -60,8 +69,17 @@ export function composioResearchConfigFromEnv(): ComposioResearchConfig {
   const metabaseCardId = Bun.env.COMPOSIO_METABASE_CARD_ID;
   return ComposioResearchConfigSchema.parse({
     apiKey: Bun.env.COMPOSIO_API_KEY,
-    userId: Bun.env.COMPOSIO_USER_ID ?? "default",
+    userId: Bun.env.COMPOSIO_USER_ID,
     timeoutMs: Number(Bun.env.COMPOSIO_RESEARCH_TIMEOUT_MS ?? 30_000),
+    connectedAccountIds: {
+      slack: Bun.env.COMPOSIO_SLACK_CONNECTED_ACCOUNT_ID || undefined,
+      granola: Bun.env.COMPOSIO_GRANOLA_CONNECTED_ACCOUNT_ID || undefined,
+      fireflies: Bun.env.COMPOSIO_FIREFLIES_CONNECTED_ACCOUNT_ID || undefined,
+      salesforce:
+        Bun.env.COMPOSIO_SALESFORCE_CONNECTED_ACCOUNT_ID || undefined,
+      posthog: Bun.env.COMPOSIO_POSTHOG_CONNECTED_ACCOUNT_ID || undefined,
+      metabase: Bun.env.COMPOSIO_METABASE_CONNECTED_ACCOUNT_ID || undefined,
+    },
     posthogProjectId: Bun.env.COMPOSIO_POSTHOG_PROJECT_ID || undefined,
     metabaseCardId: metabaseCardId ? Number(metabaseCardId) : undefined,
     metabasePersonTag:

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { ComposioResearchAgent } from "../src/composio-research-agent";
+import { ComposioResearchConfigSchema } from "../src/composio-research-source";
 import type {
   ComposioResearchConfig,
   ComposioResearchToolCall,
@@ -14,6 +15,11 @@ const config: ComposioResearchConfig = {
   apiKey: "test-key-never-sent",
   userId: "test-user",
   timeoutMs: 3_000,
+  connectedAccountIds: {
+    slack: "ca-slack",
+    granola: "ca-granola",
+    fireflies: "ca-fireflies",
+  },
   posthogProjectId: "12345",
   metabaseCardId: 77,
   metabasePersonTag: "person",
@@ -33,7 +39,21 @@ class FakeResearchExecutor implements ResearchToolExecutor {
   ): Promise<unknown> {
     this.calls.push(call);
     if (this.failures.has(call.toolSlug)) {
-      throw new Error(`Synthetic failure containing ${config.apiKey}`);
+      throw Object.assign(
+        new Error(`Synthetic failure containing ${config.apiKey}`),
+        {
+          code: "TS-SDK::TOOL_EXECUTION_ERROR",
+          statusCode: 401,
+          cause: {
+            error: {
+              error: {
+                request_id: "request-test-123",
+                suggested_fix: "Use the connected account user ID",
+              },
+            },
+          },
+        },
+      );
     }
     await Bun.sleep(
       {
@@ -154,6 +174,7 @@ describe("Composio research agent", () => {
     const granolaCall = executor.calls.find(({ source }) => source === "granola");
     expect(granolaCall?.arguments.query).toContain("Match ANY");
     expect(granolaCall?.arguments.query).toContain('"Maya Rivera"');
+    expect(granolaCall?.connectedAccountId).toBe("ca-granola");
     expect(result.signals).toHaveLength(6);
     expect(new Set(result.signals.map(({ source }) => source))).toEqual(
       new Set([
@@ -263,5 +284,18 @@ describe("Composio research agent", () => {
     expect(failures).toHaveLength(3);
     expect(JSON.stringify(failures)).not.toContain(config.apiKey);
     expect(JSON.stringify(failures)).toContain("[REDACTED]");
+    expect(JSON.stringify(failures)).toContain("request_id=request-test-123");
+    expect(JSON.stringify(failures)).toContain(
+      "suggested_fix=Use the connected account user ID",
+    );
+  });
+
+  test("requires an explicit connected-account user ID", () => {
+    expect(
+      ComposioResearchConfigSchema.safeParse({
+        ...config,
+        userId: "",
+      }).success,
+    ).toBeFalse();
   });
 });

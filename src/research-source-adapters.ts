@@ -57,6 +57,7 @@ export function buildResearchSourcePlans(
         auto_paginate: false,
       },
       extractSlack,
+      config.connectedAccountIds.slack,
     ),
     plan(
       "granola",
@@ -74,6 +75,7 @@ export function buildResearchSourcePlans(
           .join(" "),
       },
       extractGranola,
+      config.connectedAccountIds.granola,
     ),
     plan(
       "fireflies",
@@ -93,6 +95,7 @@ export function buildResearchSourcePlans(
             include_meeting_attendees: true,
           },
       extractFireflies,
+      config.connectedAccountIds.fireflies,
     ),
     plan(
       "salesforce",
@@ -109,6 +112,7 @@ export function buildResearchSourcePlans(
         ].join(" "),
       },
       extractSalesforce,
+      config.connectedAccountIds.salesforce,
     ),
     config.posthogProjectId
       ? plan(
@@ -124,6 +128,7 @@ export function buildResearchSourcePlans(
             format: "json",
           },
           extractPosthog,
+          config.connectedAccountIds.posthog,
         )
       : unavailablePlan(
           "posthog",
@@ -150,6 +155,7 @@ export function buildResearchSourcePlans(
             ignore_cache: false,
           },
           (result) => extractMetabase(result, config.metabaseCardId!),
+          config.connectedAccountIds.metabase,
         )
       : unavailablePlan(
           "metabase",
@@ -165,11 +171,18 @@ function plan(
   version: string,
   args: Record<string, unknown>,
   extractor: (result: unknown) => ExtractedRecord[],
+  connectedAccountId?: string,
 ): ResearchSourcePlan {
   return {
     source,
     toolSlug,
-    call: { source, toolSlug, version, arguments: args },
+    call: {
+      source,
+      toolSlug,
+      version,
+      arguments: args,
+      connectedAccountId,
+    },
     extractSignals: (result) =>
       extractor(result)
         .slice(0, 5)

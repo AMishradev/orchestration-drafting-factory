@@ -90,11 +90,15 @@ Set `RESEARCH_ENGINE=composio` and provide the project key only through the igno
 ```bash
 RESEARCH_ENGINE=composio \
 COMPOSIO_API_KEY=YOUR_PROJECT_KEY \
-COMPOSIO_USER_ID=default \
+COMPOSIO_USER_ID=YOUR_CONNECTED_ACCOUNT_USER_ID \
 bun run start
 ```
 
-The project API key authenticates the Composio project. Each source also needs a connected account for the same `COMPOSIO_USER_ID`. The research fan-out uses these read-only, dated tool definitions:
+The project API key authenticates and selects the Composio project; the project ID is not passed separately to the SDK. Each source also needs an active connected account for the exact `COMPOSIO_USER_ID`. The app intentionally has no `default` fallback, so a missing user ID fails at startup instead of producing six misleading source failures.
+
+If a user has multiple connected accounts for a toolkit, select one explicitly with `COMPOSIO_<SOURCE>_CONNECTED_ACCOUNT_ID` (for example, `COMPOSIO_GRANOLA_CONNECTED_ACCOUNT_ID`). Use the connected-account ID beginning with `ca_`, not the auth-config ID beginning with `ac_`.
+
+The research fan-out uses these read-only, dated tool definitions:
 
 | Source | Tool |
 | --- | --- |

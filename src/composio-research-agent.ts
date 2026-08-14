@@ -151,6 +151,7 @@ class ComposioSdkResearchExecutor implements ResearchToolExecutor {
       call.toolSlug,
       {
         userId: this.config.userId,
+        connectedAccountId: call.connectedAccountId,
         version: call.version,
         arguments: call.arguments,
       },
@@ -189,7 +190,39 @@ function dedupeSignals(signals: Signal[]): Signal[] {
 }
 
 function sanitizeError(error: unknown, apiKey: string): string {
-  const message = error instanceof Error ? error.message : String(error);
-  const redacted = message.replaceAll(apiKey, "[REDACTED]");
-  return redacted.length <= 300 ? redacted : `${redacted.slice(0, 299)}…`;
+  const details = [
+    error instanceof Error ? error.message : String(error),
+    ...collectErrorDetails(error),
+  ];
+  const redacted = [...new Set(details)]
+    .filter(Boolean)
+    .join(" | ")
+    .replaceAll(apiKey, "[REDACTED]");
+  return redacted.length <= 800 ? redacted : `${redacted.slice(0, 799)}…`;
+}
+
+function collectErrorDetails(value: unknown, depth = 0): string[] {
+  if (depth > 4 || !value || typeof value !== "object") return [];
+  const record = value as Record<string, unknown>;
+  const details: string[] = [];
+
+  for (const key of [
+    "code",
+    "status",
+    "statusCode",
+    "slug",
+    "request_id",
+    "suggested_fix",
+  ]) {
+    const field = record[key];
+    if (typeof field === "string" || typeof field === "number") {
+      details.push(`${key}=${String(field)}`);
+    }
+  }
+
+  if (typeof record.message === "string") details.push(record.message);
+  for (const key of ["cause", "error", "body"]) {
+    details.push(...collectErrorDetails(record[key], depth + 1));
+  }
+  return details;
 }
