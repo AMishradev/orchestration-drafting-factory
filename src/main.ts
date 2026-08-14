@@ -11,6 +11,7 @@ const orchestrator = await startOrchestratorServer({
 });
 
 console.log(`Runner WebSocket: ${runner.url}`);
+console.log(`Research engine: ${runner.researchEngine}`);
 console.log(`Drafting engine: ${runner.draftingEngine}`);
 console.log(`Critic engine: ${runner.criticEngine}`);
 console.log(`Orchestrator API: ${orchestrator.url}`);

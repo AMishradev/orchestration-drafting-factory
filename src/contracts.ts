@@ -17,18 +17,36 @@ export const WorkflowRequestSchema = z.object({
   }),
   prospect: z.object({
     firstName: z.string().min(1),
+    lastName: z.string().min(1).optional(),
+    email: z.string().email().optional(),
     title: z.string().min(1),
+    linkedinUrl: z.string().url().optional(),
   }),
 });
 
 export type WorkflowRequest = z.infer<typeof WorkflowRequestSchema>;
+
+export const ResearchSourceSchema = z.enum([
+  "workflow_input",
+  "slack",
+  "granola",
+  "fireflies",
+  "salesforce",
+  "posthog",
+  "metabase",
+]);
+
+export type ResearchSource = z.infer<typeof ResearchSourceSchema>;
 
 export const SignalSchema = z.object({
   id: z.string(),
   claim: z.string(),
   sourceUrl: z.string(),
   confidence: z.number().min(0).max(1),
+  source: ResearchSourceSchema.optional(),
 });
+
+export type Signal = z.infer<typeof SignalSchema>;
 
 export const ResearchResultSchema = z.object({
   companySummary: z.string(),
@@ -36,6 +54,39 @@ export const ResearchResultSchema = z.object({
 });
 
 export type ResearchResult = z.infer<typeof ResearchResultSchema>;
+
+export const ResearchInputSchema = z.object({
+  request: WorkflowRequestSchema,
+});
+
+export type ResearchInput = z.infer<typeof ResearchInputSchema>;
+
+export const ResearchProgressEventSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("research.source.started"),
+    source: ResearchSourceSchema.exclude(["workflow_input"]),
+    toolSlug: z.string(),
+  }),
+  z.object({
+    type: z.literal("research.source.completed"),
+    source: ResearchSourceSchema.exclude(["workflow_input"]),
+    signalCount: z.number().int().nonnegative(),
+  }),
+  z.object({
+    type: z.literal("research.source.failed"),
+    source: ResearchSourceSchema.exclude(["workflow_input"]),
+    error: z.string(),
+  }),
+  z.object({
+    type: z.literal("research.signal.available"),
+    source: ResearchSourceSchema.exclude(["workflow_input"]),
+    signal: SignalSchema,
+  }),
+]);
+
+export type ResearchProgressEvent = z.infer<
+  typeof ResearchProgressEventSchema
+>;
 
 export const DraftingInputSchema = z.object({
   request: WorkflowRequestSchema,
@@ -192,6 +243,7 @@ export type WorkflowState = {
   draftAttempt: number;
   request: WorkflowRequest;
   research?: ResearchResult;
+  researchSignals: Signal[];
   draft?: DraftResult;
   verdicts: RecordedVerdict[];
   draftingSessionId?: string;

@@ -2,6 +2,7 @@ import {
   DraftResultSchema,
   DraftingInputSchema,
   EvaluationInputSchema,
+  ResearchInputSchema,
   RunnerCommandSchema,
   RunnerEventSchema,
   type FeedbackCommand,
@@ -19,6 +20,11 @@ import {
 import { MockAgentEngine } from "./mock-agent";
 import { PiRpcDraftingAgent } from "./pi-drafting-agent";
 import { PiRpcCriticAgent } from "./pi-critic-agent";
+import { ComposioResearchAgent } from "./composio-research-agent";
+import {
+  MockResearchAgent,
+  type ResearchAgent,
+} from "./research-agent";
 
 type RunnerSocketData = { connectedAt: string };
 
@@ -33,12 +39,14 @@ type StoredSession = {
 export type RunnerServer = {
   server: Bun.Server<RunnerSocketData>;
   url: string;
+  researchEngine: ResearchAgent["kind"];
   draftingEngine: DraftingAgent["kind"];
   criticEngine: CriticAgent["kind"];
   stop: () => Promise<void>;
 };
 
 export type RunnerOptions = {
+  researchAgent?: ResearchAgent;
   draftingAgent?: DraftingAgent;
   criticAgent?: CriticAgent;
 };
@@ -48,6 +56,11 @@ export function startRunnerServer(
   options: RunnerOptions = {},
 ): RunnerServer {
   const engine = new MockAgentEngine();
+  const researchAgent =
+    options.researchAgent ??
+    (Bun.env.RESEARCH_ENGINE === "composio"
+      ? new ComposioResearchAgent()
+      : new MockResearchAgent(engine));
   const draftingAgent =
     options.draftingAgent ??
     (Bun.env.DRAFTING_ENGINE === "pi"
@@ -70,6 +83,7 @@ export function startRunnerServer(
         return Response.json({
           status: "ok",
           service: "runner",
+          researchEngine: researchAgent.kind,
           draftingEngine: draftingAgent.kind,
           criticEngine: criticAgent.kind,
         });
@@ -152,7 +166,14 @@ export function startRunnerServer(
           event,
         });
       const result =
-        command.stage === "drafting"
+        command.stage === "research"
+          ? await researchAgent.research({
+              sessionId: command.sessionId,
+              input: ResearchInputSchema.parse(command.input),
+              attempt: command.attempt,
+              onProgress,
+            })
+          : command.stage === "drafting"
           ? await draftingAgent.draft({
               sessionId: command.sessionId,
               input: DraftingInputSchema.parse(command.input),
@@ -263,10 +284,12 @@ export function startRunnerServer(
   return {
     server,
     url: `ws://127.0.0.1:${server.port}/ws`,
+    researchEngine: researchAgent.kind,
     draftingEngine: draftingAgent.kind,
     criticEngine: criticAgent.kind,
     stop: async () => {
       await Promise.all([
+        researchAgent.disposeAll(),
         draftingAgent.disposeAll(),
         criticAgent.disposeAll(),
       ]);

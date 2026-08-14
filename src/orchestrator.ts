@@ -1,6 +1,7 @@
 import {
   DraftResultSchema,
   FeedbackCommandSchema,
+  ResearchProgressEventSchema,
   ResearchResultSchema,
   RunnerEventSchema,
   StartRunCommandSchema,
@@ -66,6 +67,7 @@ export class FactoryOrchestrator {
       stage: "research",
       draftAttempt: 0,
       request,
+      researchSignals: [],
       verdicts: [],
       createdAt: now,
       updatedAt: now,
@@ -191,6 +193,21 @@ export class FactoryOrchestrator {
 
     if (event.type === "agent.progress") {
       this.publish(workflow, "agent.progress", event);
+      if (event.stage === "research") {
+        const progress = ResearchProgressEventSchema.safeParse(event.event);
+        if (progress.success) {
+          if (progress.data.type === "research.signal.available") {
+            const signal = progress.data.signal;
+            workflow.researchSignals = [
+              ...workflow.researchSignals.filter(
+                ({ id }) => id !== signal.id,
+              ),
+              signal,
+            ];
+          }
+          this.publish(workflow, progress.data.type, progress.data);
+        }
+      }
       return;
     }
 
@@ -210,6 +227,7 @@ export class FactoryOrchestrator {
       switch (event.stage) {
         case "research": {
           workflow.research = ResearchResultSchema.parse(event.result);
+          workflow.researchSignals = workflow.research.signals;
           this.startStage(workflow, "drafting", {
             request: workflow.request,
             research: workflow.research,

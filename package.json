@@ -9,10 +9,13 @@
     "start:pi": "DRAFTING_ENGINE=pi CRITIC_ENGINE=pi bun src/main.ts",
     "start:pi:drafting": "DRAFTING_ENGINE=pi bun src/main.ts",
     "start:pi:critic": "CRITIC_ENGINE=pi bun src/main.ts",
+    "start:composio:research": "RESEARCH_ENGINE=composio bun src/main.ts",
+    "start:agents": "RESEARCH_ENGINE=composio DRAFTING_ENGINE=pi CRITIC_ENGINE=pi bun src/main.ts",
     "demo": "bun src/demo.ts",
     "test": "bun test"
   },
   "dependencies": {
+    "@composio/core": "^0.16.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {
