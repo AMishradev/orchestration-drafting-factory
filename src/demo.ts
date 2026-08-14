@@ -26,7 +26,7 @@ try {
       result.json(),
     )) as Record<string, unknown>;
 
-    if (["approved", "rejected", "human_review", "failed"].includes(String(workflow.status))) {
+    if (["sent", "rejected", "human_review", "failed"].includes(String(workflow.status))) {
       break;
     }
   }

@@ -14,6 +14,7 @@ console.log(`Runner WebSocket: ${runner.url}`);
 console.log(`Research engine: ${runner.researchEngine}`);
 console.log(`Drafting engine: ${runner.draftingEngine}`);
 console.log(`Critic engine: ${runner.criticEngine}`);
+console.log(`Send engine: ${runner.sendEngine}`);
 console.log(`Orchestrator API: ${orchestrator.url}`);
 console.log("Start a workflow with POST /workflows");
 

@@ -4,6 +4,8 @@ import {
   ResearchProgressEventSchema,
   ResearchResultSchema,
   RunnerEventSchema,
+  SendProgressEventSchema,
+  SendResultSchema,
   StartRunCommandSchema,
   VerdictSchema,
   WorkflowRequestSchema,
@@ -15,7 +17,7 @@ import {
 import { EventHub, formatSse } from "./event-hub";
 
 const terminalStatuses = new Set([
-  "approved",
+  "sent",
   "rejected",
   "human_review",
   "failed",
@@ -207,6 +209,11 @@ export class FactoryOrchestrator {
           }
           this.publish(workflow, progress.data.type, progress.data);
         }
+      } else if (event.stage === "send") {
+        const progress = SendProgressEventSchema.safeParse(event.event);
+        if (progress.success) {
+          this.publish(workflow, progress.data.type, progress.data);
+        }
       }
       return;
     }
@@ -276,7 +283,20 @@ export class FactoryOrchestrator {
             this.publish(workflow, "workflow.approved", {
               draft: workflow.draft,
             });
+            this.startSend(workflow);
           }
+          break;
+        }
+
+        case "send": {
+          workflow.sendResult = SendResultSchema.parse(event.result);
+          workflow.status = "sent";
+          workflow.updatedAt = new Date().toISOString();
+          this.publish(workflow, "outbound.sent", workflow.sendResult);
+          this.publish(workflow, "workflow.sent", {
+            delivery: workflow.sendResult.delivery,
+            destination: workflow.sendResult.destination,
+          });
           break;
         }
       }
@@ -299,6 +319,19 @@ export class FactoryOrchestrator {
       research: workflow.research,
       draft: workflow.draft,
       priorVerdicts: workflow.verdicts,
+    });
+  }
+
+  private startSend(workflow: WorkflowState) {
+    if (!workflow.research || !workflow.draft) {
+      this.fail(workflow, "Cannot send without research and an approved draft");
+      return;
+    }
+
+    this.startStage(workflow, "send", {
+      request: workflow.request,
+      research: workflow.research,
+      draft: workflow.draft,
     });
   }
 

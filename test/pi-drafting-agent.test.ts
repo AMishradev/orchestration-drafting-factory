@@ -102,7 +102,7 @@ describe("Pi RPC drafting adapter", () => {
       }
 
       expect(runner.draftingEngine).toBe("pi-rpc");
-      expect(state?.status).toBe("approved");
+      expect(state?.status).toBe("sent");
       expect(state?.draftAttempt).toBe(2);
       expect(state?.draft?.revision).toBe(2);
       expect(state?.draft?.body).toContain("removed the disputed claim");

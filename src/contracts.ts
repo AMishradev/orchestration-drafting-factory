@@ -6,6 +6,7 @@ export const StageSchema = z.enum([
   "review",
   "critic",
   "deep_review",
+  "send",
 ]);
 
 export type Stage = z.infer<typeof StageSchema>;
@@ -144,6 +145,48 @@ export const EvaluationInputSchema = DraftingInputSchema.extend({
 
 export type EvaluationInput = z.infer<typeof EvaluationInputSchema>;
 
+export const SendInputSchema = DraftingInputSchema.extend({
+  draft: DraftResultSchema,
+});
+
+export type SendInput = z.infer<typeof SendInputSchema>;
+
+export const SendResultSchema = z.object({
+  delivery: z.enum(["simulated", "sent"]),
+  destination: z.object({
+    kind: z.literal("slack_dm"),
+    recipient: z.string().min(1),
+    slackUserId: z.string().min(1),
+    channelId: z.string().min(1),
+  }),
+  subject: z.string().min(1),
+  body: z.string().min(1),
+  formattedMessage: z.string().min(1),
+  externalMessageId: z.string().min(1).optional(),
+  sentAt: z.string().datetime(),
+});
+
+export type SendResult = z.infer<typeof SendResultSchema>;
+
+export const SendProgressEventSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("send.recipient.resolved"),
+    recipient: z.string().min(1),
+    slackUserId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("send.dm.opened"),
+    channelId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("send.message.sent"),
+    channelId: z.string().min(1),
+    externalMessageId: z.string().min(1).optional(),
+  }),
+]);
+
+export type SendProgressEvent = z.infer<typeof SendProgressEventSchema>;
+
 const CommandBaseSchema = z.object({
   messageId: z.string(),
   workflowId: z.string(),
@@ -229,6 +272,7 @@ export const WorkflowStatusSchema = z.enum([
   "running",
   "revising",
   "approved",
+  "sent",
   "rejected",
   "human_review",
   "failed",
@@ -245,6 +289,7 @@ export type WorkflowState = {
   research?: ResearchResult;
   researchSignals: Signal[];
   draft?: DraftResult;
+  sendResult?: SendResult;
   verdicts: RecordedVerdict[];
   draftingSessionId?: string;
   criticSessionId?: string;

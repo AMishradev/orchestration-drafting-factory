@@ -35,6 +35,8 @@ export class MockAgentEngine {
         return this.critic(input as EvaluationInput);
       case "deep_review":
         return this.deepReview(input as EvaluationInput);
+      case "send":
+        throw new Error("Send stages must be handled by a SendAgent");
     }
   }
 

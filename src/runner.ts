@@ -5,6 +5,7 @@ import {
   ResearchInputSchema,
   RunnerCommandSchema,
   RunnerEventSchema,
+  SendInputSchema,
   type FeedbackCommand,
   type RunnerEvent,
   type Stage,
@@ -25,6 +26,8 @@ import {
   MockResearchAgent,
   type ResearchAgent,
 } from "./research-agent";
+import { ComposioSlackSendAgent } from "./composio-slack-send-agent";
+import { MockSendAgent, type SendAgent } from "./send-agent";
 
 type RunnerSocketData = { connectedAt: string };
 
@@ -42,6 +45,7 @@ export type RunnerServer = {
   researchEngine: ResearchAgent["kind"];
   draftingEngine: DraftingAgent["kind"];
   criticEngine: CriticAgent["kind"];
+  sendEngine: SendAgent["kind"];
   stop: () => Promise<void>;
 };
 
@@ -49,6 +53,7 @@ export type RunnerOptions = {
   researchAgent?: ResearchAgent;
   draftingAgent?: DraftingAgent;
   criticAgent?: CriticAgent;
+  sendAgent?: SendAgent;
 };
 
 export function startRunnerServer(
@@ -71,6 +76,11 @@ export function startRunnerServer(
     (Bun.env.CRITIC_ENGINE === "pi"
       ? new PiRpcCriticAgent()
       : new MockCriticAgent(engine));
+  const sendAgent =
+    options.sendAgent ??
+    (Bun.env.SEND_ENGINE === "composio-slack"
+      ? new ComposioSlackSendAgent()
+      : new MockSendAgent());
   const sessions = new Map<string, StoredSession>();
 
   const server = Bun.serve<RunnerSocketData>({
@@ -86,6 +96,7 @@ export function startRunnerServer(
           researchEngine: researchAgent.kind,
           draftingEngine: draftingAgent.kind,
           criticEngine: criticAgent.kind,
+          sendEngine: sendAgent.kind,
         });
       }
 
@@ -187,6 +198,13 @@ export function startRunnerServer(
                 attempt: command.attempt,
                 onProgress,
               })
+            : command.stage === "send"
+              ? await sendAgent.send({
+                  sessionId: command.sessionId,
+                  input: SendInputSchema.parse(command.input),
+                  attempt: command.attempt,
+                  onProgress,
+                })
             : await engine.run(command.stage, command.input);
       session.output = result;
       send(socket, {
@@ -287,11 +305,13 @@ export function startRunnerServer(
     researchEngine: researchAgent.kind,
     draftingEngine: draftingAgent.kind,
     criticEngine: criticAgent.kind,
+    sendEngine: sendAgent.kind,
     stop: async () => {
       await Promise.all([
         researchAgent.disposeAll(),
         draftingAgent.disposeAll(),
         criticAgent.disposeAll(),
+        sendAgent.disposeAll(),
       ]);
       await server.stop(true);
     },

@@ -228,7 +228,7 @@ describe("Composio research agent", () => {
     }
 
     expect(runner.researchEngine).toBe("composio");
-    expect(state?.status).toBe("approved");
+    expect(state?.status).toBe("sent");
     expect(state?.researchSignals).toHaveLength(6);
     expect(state?.research?.signals).toEqual(state?.researchSignals);
 

@@ -145,7 +145,7 @@ describe("Pi RPC critic adapter", () => {
 
       expect(runner.draftingEngine).toBe("mock");
       expect(runner.criticEngine).toBe("pi-rpc");
-      expect(state?.status).toBe("approved");
+      expect(state?.status).toBe("sent");
       expect(state?.draftAttempt).toBe(3);
       expect(state?.draft?.revision).toBe(3);
 
