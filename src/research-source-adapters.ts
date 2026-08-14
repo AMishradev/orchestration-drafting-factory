@@ -35,6 +35,13 @@ export function buildResearchSourcePlans(
   ].filter((value): value is string => Boolean(value));
   const strongestIdentifier =
     request.prospect.email ?? request.company.domain ?? request.company.name;
+  const granolaIdentifiers = [
+    request.prospect.email,
+    fullName,
+    request.prospect.firstName,
+    request.company.name,
+    request.company.domain,
+  ].filter((value): value is string => Boolean(value));
 
   return [
     plan(
@@ -57,14 +64,13 @@ export function buildResearchSourcePlans(
       toolVersions.granola,
       {
         query: [
-          `Find internal meeting notes about ${fullName}, ${request.prospect.title} at ${request.company.name}.`,
-          `Also match the company domain ${request.company.domain}`,
-          request.prospect.email
-            ? `and the email ${request.prospect.email}.`
-            : "",
+          "Search all internal Granola meeting notes and recordings.",
+          `Match ANY one of these identifiers independently (OR semantics): ${[
+            ...new Set(granolaIdentifiers),
+          ].map((value) => JSON.stringify(value)).join(", ")}.`,
+          "A meeting is relevant when any identifier matches, even if its participant email or company domain differs from the workflow input.",
           "Return only relevant meeting facts, dates, participants, decisions, pains, and next steps.",
         ]
-          .filter(Boolean)
           .join(" "),
       },
       extractGranola,
@@ -214,9 +220,15 @@ function extractSlack(result: unknown): ExtractedRecord[] {
 }
 
 function extractGranola(result: unknown): ExtractedRecord[] {
-  const texts = findStringsByKey(result, "text");
-  return texts
-    .filter((text) => text.trim().length > 0)
+  const texts = [
+    ...(typeof result === "string" ? [result] : []),
+    ...["data", "text", "content", "output", "result"].flatMap((key) =>
+      findStringsByKey(result, key),
+    ),
+  ];
+
+  return [...new Set(texts.filter((text) => text.trim().length > 0))]
+    .flatMap((text) => chunkText(text, 540))
     .map((text) => ({ claim: `Granola meeting context — ${text}` }));
 }
 
@@ -337,6 +349,23 @@ function normalizeText(value: string, maxLength: number): string {
   return normalized.length <= maxLength
     ? normalized
     : `${normalized.slice(0, maxLength - 1)}…`;
+}
+
+function chunkText(value: string, maxLength: number): string[] {
+  const words = value.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  const chunks: string[] = [];
+  let current = "";
+
+  for (const word of words) {
+    if (current && current.length + word.length + 1 > maxLength) {
+      chunks.push(current);
+      current = "";
+    }
+    current = current ? `${current} ${word}` : word;
+  }
+
+  if (current) chunks.push(current);
+  return chunks;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

@@ -40,15 +40,17 @@ export class MockCriticAgent implements CriticAgent {
 }
 
 const forbiddenFairPattern = /\bfair\b/i;
+const allowedCampaignToneIssue = "TONE_UNPROFESSIONAL";
 
 export function enforceCriticPolicy(
   input: EvaluationInput,
   verdict: Verdict,
 ): Verdict {
+  const campaignVerdict = allowIntentionalCampaignTone(verdict);
   const containsFair = forbiddenFairPattern.test(
     `${input.draft.subject}\n${input.draft.body}`,
   );
-  if (!containsFair) return verdict;
+  if (!containsFair) return campaignVerdict;
 
   const fairIssue = {
     code: "FORBIDDEN_WORD_FAIR",
@@ -60,13 +62,29 @@ export function enforceCriticPolicy(
   return VerdictSchema.parse({
     decision: "revise",
     issues:
-      verdict.decision === "revise"
+      campaignVerdict.decision === "revise"
         ? [
-            ...verdict.issues.filter(
+            ...campaignVerdict.issues.filter(
               ({ code }) => code !== fairIssue.code,
             ),
             fairIssue,
           ]
         : [fairIssue],
+  });
+}
+
+function allowIntentionalCampaignTone(verdict: Verdict): Verdict {
+  if (verdict.decision !== "revise") return verdict;
+
+  const remainingIssues = verdict.issues.filter(
+    ({ code }) => code.toUpperCase() !== allowedCampaignToneIssue,
+  );
+  if (remainingIssues.length > 0) {
+    return VerdictSchema.parse({ decision: "revise", issues: remainingIssues });
+  }
+
+  return VerdictSchema.parse({
+    decision: "approve",
+    notes: ["The intentional medieval campaign tone is allowed."],
   });
 }

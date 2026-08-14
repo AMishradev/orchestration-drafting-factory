@@ -60,11 +60,7 @@ class FakeResearchExecutor implements ResearchToolExecutor {
         },
       },
       GRANOLA_MCP_QUERY_GRANOLA_MEETINGS: {
-        data: [
-          {
-            text: "Meeting notes: Maya owns the enterprise outbound evaluation and wants evidence-backed personalization.",
-          },
-        ],
+        data: "Meeting notes: Maya owns the enterprise outbound evaluation and wants evidence-backed personalization.",
       },
       FIREFLIES_GET_TRANSCRIPTS: {
         transcripts: [
@@ -155,6 +151,9 @@ describe("Composio research agent", () => {
       ]),
     );
     expect(executor.calls.every(({ version }) => /^\d{8}_\d{2}$/.test(version))).toBeTrue();
+    const granolaCall = executor.calls.find(({ source }) => source === "granola");
+    expect(granolaCall?.arguments.query).toContain("Match ANY");
+    expect(granolaCall?.arguments.query).toContain('"Maya Rivera"');
     expect(result.signals).toHaveLength(6);
     expect(new Set(result.signals.map(({ source }) => source))).toEqual(
       new Set([

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { join } from "node:path";
+import { enforceCriticPolicy } from "../src/critic-agent";
 import type { EvaluationInput } from "../src/contracts";
 import { startOrchestratorServer } from "../src/orchestrator";
 import { PiRpcCriticAgent } from "../src/pi-critic-agent";
@@ -46,6 +47,25 @@ function evaluationInput(): EvaluationInput {
 }
 
 describe("Pi RPC critic adapter", () => {
+  test("allows the intentional medieval campaign tone", () => {
+    const verdict = enforceCriticPolicy(evaluationInput(), {
+      decision: "revise",
+      issues: [
+        {
+          code: "TONE_UNPROFESSIONAL",
+          message: "The medieval-knight voice is too whimsical.",
+          instruction: "Remove the medieval language.",
+          severity: "blocking",
+        },
+      ],
+    });
+
+    expect(verdict).toEqual({
+      decision: "approve",
+      notes: ["The intentional medieval campaign tone is allowed."],
+    });
+  });
+
   test("streams progress and reuses one critic session", async () => {
     const fixture = join(import.meta.dir, "fixtures", "fake-critic-pi.ts");
     agent = new PiRpcCriticAgent({

@@ -79,7 +79,7 @@ curl http://127.0.0.1:4101/health
 
 The response reports `researchEngine`, `draftingEngine`, and `criticEngine`. With `bun run start:agents`, their values are `composio`, `pi-rpc`, and `pi-rpc`. Drafting prompts ask for a short whimsical email written like a medieval knight and require raw JSON matching `DraftResultSchema`.
 
-The critic returns a Zod-validated approve, revise, or reject verdict. It has a hard policy against the standalone word `fair`: any subject or body containing it is forced to `revise` with issue code `FORBIDDEN_WORD_FAIR`, even if Pi attempted to approve the draft.
+The critic returns a Zod-validated approve, revise, or reject verdict. The whimsical medieval-knight voice is an intentional campaign requirement, so generic `TONE_UNPROFESSIONAL` objections are ignored. It has a hard policy against the standalone word `fair`: any subject or body containing it is forced to `revise` with issue code `FORBIDDEN_WORD_FAIR`, even if Pi attempted to approve the draft.
 
 Pi progress events from both agents are forwarded over the runner WebSocket and exposed at the workflow SSE endpoint as `agent.progress` events. Once the critic's completed verdict passes validation and policy checks, a revise verdict is immediately sent to the same persistent drafting session and appears as `feedback.routed`.
 

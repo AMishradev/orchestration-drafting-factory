@@ -35,7 +35,8 @@ export class PiRpcCriticAgent implements CriticAgent {
     const input = EvaluationInputSchema.parse(args.input);
     const prompt = [
       "You are the critic agent for a cold-email workflow.",
-      "Evaluate the draft for clarity, concision, relevance, tone, and evidentiary support.",
+      "Evaluate the draft for clarity, concision, relevance, and evidentiary support.",
+      "The whimsical medieval-knight voice is an intentional campaign requirement. Do not flag it as unprofessional or request that it be removed.",
       'Hard rule: the standalone word "fair" is forbidden in the subject and body, regardless of capitalization.',
       'If "fair" appears, return revise with issue code FORBIDDEN_WORD_FAIR and instruct drafting to remove or rewrite every occurrence.',
       "Treat factual claims as supported only when their signal IDs exist in the supplied research.",
