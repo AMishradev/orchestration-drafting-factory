@@ -31,6 +31,11 @@ type EventWaiter = {
   timeout: ReturnType<typeof setTimeout>;
 };
 
+type EventWait = {
+  promise: Promise<PiRpcEvent>;
+  cancel: () => void;
+};
+
 export class PiRpcClient {
   private readonly process: Bun.Subprocess<"pipe", "pipe", "pipe">;
   private readonly pending = new Map<string, PendingResponse>();
@@ -39,6 +44,8 @@ export class PiRpcClient {
   private stderr = "";
   private closed = false;
   private prompting = false;
+  private readonly stdoutDone: Promise<void>;
+  private readonly stderrDone: Promise<void>;
 
   constructor(
     command: string[],
@@ -50,15 +57,9 @@ export class PiRpcClient {
       stderr: "pipe",
     });
 
-    void this.readStdout();
-    void this.readStderr();
-    void this.process.exited.then((code) => {
-      const detail = this.stderr.trim();
-      const error = new Error(
-        `Pi RPC process exited with code ${code}${detail ? `: ${detail}` : ""}`,
-      );
-      this.rejectOutstanding(error);
-    });
+    this.stdoutDone = this.readStdout();
+    this.stderrDone = this.readStderr();
+    void this.monitorExit();
   }
 
   onEvent(listener: (event: PiRpcEvent) => void): () => void {
@@ -74,8 +75,12 @@ export class PiRpcClient {
     this.prompting = true;
     try {
       const settled = this.waitForEvent((event) => event.type === "agent_settled");
-      await this.sendCommand({ type: "prompt", message });
-      await settled;
+      try {
+        const promptResponse = this.sendCommand({ type: "prompt", message });
+        await Promise.all([promptResponse, settled.promise]);
+      } finally {
+        settled.cancel();
+      }
 
       const response = await this.sendCommand({ type: "get_last_assistant_text" });
       const data = LastTextDataSchema.parse(response.data);
@@ -97,6 +102,7 @@ export class PiRpcClient {
     this.process.stdin.end();
     if (this.process.exitCode === null) this.process.kill("SIGTERM");
     await this.process.exited;
+    await Promise.allSettled([this.stdoutDone, this.stderrDone]);
   }
 
   private sendCommand(command: Record<string, unknown>) {
@@ -126,9 +132,10 @@ export class PiRpcClient {
     });
   }
 
-  private waitForEvent(matches: EventWaiter["matches"]): Promise<PiRpcEvent> {
-    return new Promise((resolve, reject) => {
-      const waiter: EventWaiter = {
+  private waitForEvent(matches: EventWaiter["matches"]): EventWait {
+    let waiter: EventWaiter;
+    const promise = new Promise<PiRpcEvent>((resolve, reject) => {
+      waiter = {
         matches,
         resolve,
         reject,
@@ -139,6 +146,13 @@ export class PiRpcClient {
       };
       this.eventWaiters.add(waiter);
     });
+    return {
+      promise,
+      cancel: () => {
+        if (!this.eventWaiters.delete(waiter)) return;
+        clearTimeout(waiter.timeout);
+      },
+    };
   }
 
   private async readStdout() {
@@ -177,6 +191,19 @@ export class PiRpcClient {
 
     for (const listener of this.listeners) listener(event);
 
+    if (event.type === "extension_ui_request") {
+      const title =
+        typeof event.title === "string"
+          ? event.title.replace(/\s+/g, " ").trim()
+          : "Pi requested interactive configuration";
+      this.rejectOutstanding(
+        new Error(
+          `Pi RPC requires interactive setup: ${title}. Initialize Pi on this VM before starting the runner.`,
+        ),
+      );
+      return;
+    }
+
     if (event.type === "response") {
       const response = RpcResponseSchema.safeParse(event);
       if (response.success && response.data.id) {
@@ -209,5 +236,16 @@ export class PiRpcClient {
       waiter.reject(error);
     }
     this.eventWaiters.clear();
+  }
+
+  private async monitorExit(): Promise<void> {
+    const code = await this.process.exited;
+    await Promise.allSettled([this.stdoutDone, this.stderrDone]);
+    if (this.closed) return;
+    const detail = this.stderr.trim();
+    const error = new Error(
+      `Pi RPC process exited with code ${code}${detail ? `: ${detail}` : ""}`,
+    );
+    this.rejectOutstanding(error);
   }
 }

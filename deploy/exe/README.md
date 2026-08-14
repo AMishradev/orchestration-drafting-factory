@@ -17,7 +17,9 @@ different bearer token. `/health` remains unauthenticated for uptime checks.
 
 Secrets are deliberately scoped:
 
-- Pi auth is installed only on research, drafting, and critic.
+- Pi runtime/auth is installed only on research, drafting, and critic. These
+  VMs also need Pi's non-secret first-run state files, `settings.json` and
+  `exe-dev-llm-integration.json`, so RPC mode never blocks on a UI prompt.
 - The Composio project key is installed only on research and send.
 - The runner token is installed on all five VMs.
 - The public API token is installed only on the orchestrator.
@@ -83,3 +85,19 @@ state is still in memory, a workflow with a command actively running on a VM at
 the moment of disconnection is failed rather than silently replayed. Durable
 checkpoints and command acknowledgements in Postgres remain the next reliability
 step.
+
+Before starting a Pi-backed runner, either initialize Pi interactively once or
+copy only the initialized state from a trusted Pi VM:
+
+```bash
+scp trusted-pi-vm.exe.xyz:~/.pi/agent/settings.json /tmp/settings.json
+scp trusted-pi-vm.exe.xyz:~/.pi/agent/exe-dev-llm-integration.json \
+  /tmp/exe-dev-llm-integration.json
+scp /tmp/settings.json target-runner.exe.xyz:~/.pi/agent/settings.json
+scp /tmp/exe-dev-llm-integration.json \
+  target-runner.exe.xyz:~/.pi/agent/exe-dev-llm-integration.json
+```
+
+Do not copy session history. An unexpected first-run UI request is reported as
+an explicit workflow error; it no longer appears as a pricing-warning failure
+or crashes the Bun runner.
