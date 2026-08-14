@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "bun --watch src/main.ts",
     "start": "bun src/main.ts",
+    "start:pi": "DRAFTING_ENGINE=pi bun src/main.ts",
     "demo": "bun src/demo.ts",
     "test": "bun test"
   },

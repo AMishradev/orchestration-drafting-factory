@@ -1,13 +1,18 @@
 import {
   DraftResultSchema,
+  DraftingInputSchema,
   RunnerCommandSchema,
   RunnerEventSchema,
-  type DraftResult,
   type FeedbackCommand,
   type RunnerEvent,
   type Stage,
 } from "./contracts";
+import {
+  MockDraftingAgent,
+  type DraftingAgent,
+} from "./drafting-agent";
 import { MockAgentEngine } from "./mock-agent";
+import { PiRpcDraftingAgent } from "./pi-drafting-agent";
 
 type RunnerSocketData = { connectedAt: string };
 
@@ -22,11 +27,24 @@ type StoredSession = {
 export type RunnerServer = {
   server: Bun.Server<RunnerSocketData>;
   url: string;
+  draftingEngine: DraftingAgent["kind"];
   stop: () => Promise<void>;
 };
 
-export function startRunnerServer(port = 4101): RunnerServer {
+export type RunnerOptions = {
+  draftingAgent?: DraftingAgent;
+};
+
+export function startRunnerServer(
+  port = 4101,
+  options: RunnerOptions = {},
+): RunnerServer {
   const engine = new MockAgentEngine();
+  const draftingAgent =
+    options.draftingAgent ??
+    (Bun.env.DRAFTING_ENGINE === "pi"
+      ? new PiRpcDraftingAgent()
+      : new MockDraftingAgent(engine));
   const sessions = new Map<string, StoredSession>();
 
   const server = Bun.serve<RunnerSocketData>({
@@ -36,7 +54,11 @@ export function startRunnerServer(port = 4101): RunnerServer {
       const url = new URL(request.url);
 
       if (url.pathname === "/health") {
-        return Response.json({ status: "ok", service: "runner" });
+        return Response.json({
+          status: "ok",
+          service: "runner",
+          draftingEngine: draftingAgent.kind,
+        });
       }
 
       if (url.pathname === "/ws") {
@@ -105,7 +127,24 @@ export function startRunnerServer(port = 4101): RunnerServer {
     });
 
     try {
-      const result = await engine.run(command.stage, command.input);
+      const result =
+        command.stage === "drafting"
+          ? await draftingAgent.draft({
+              sessionId: command.sessionId,
+              input: DraftingInputSchema.parse(command.input),
+              attempt: command.attempt,
+              onProgress: (event) =>
+                send(socket, {
+                  type: "agent.progress",
+                  workflowId: command.workflowId,
+                  runId: command.runId,
+                  sessionId: command.sessionId,
+                  stage: "drafting",
+                  attempt: command.attempt,
+                  event,
+                }),
+            })
+          : await engine.run(command.stage, command.input);
       session.output = result;
       send(socket, {
         type: "run.completed",
@@ -158,10 +197,22 @@ export function startRunnerServer(port = 4101): RunnerServer {
     });
 
     try {
-      const result = await engine.reviseDraft({
-        input: session.input as Parameters<MockAgentEngine["reviseDraft"]>[0]["input"],
-        previousDraft: DraftResultSchema.parse(session.output) as DraftResult,
+      const result = await draftingAgent.revise({
+        sessionId: command.targetSessionId,
+        input: DraftingInputSchema.parse(session.input),
+        attempt: command.attempt,
+        previousDraft: DraftResultSchema.parse(session.output),
         feedback: command.feedback.verdict,
+        onProgress: (event) =>
+          send(socket, {
+            type: "agent.progress",
+            workflowId: command.workflowId,
+            runId: command.runId,
+            sessionId: command.targetSessionId,
+            stage: "drafting",
+            attempt: command.attempt,
+            event,
+          }),
       });
       session.output = result;
 
@@ -190,6 +241,10 @@ export function startRunnerServer(port = 4101): RunnerServer {
   return {
     server,
     url: `ws://127.0.0.1:${server.port}/ws`,
-    stop: () => server.stop(true),
+    draftingEngine: draftingAgent.kind,
+    stop: async () => {
+      await draftingAgent.disposeAll();
+      await server.stop(true);
+    },
   };
 }

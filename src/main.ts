@@ -11,6 +11,7 @@ const orchestrator = await startOrchestratorServer({
 });
 
 console.log(`Runner WebSocket: ${runner.url}`);
+console.log(`Drafting engine: ${runner.draftingEngine}`);
 console.log(`Orchestrator API: ${orchestrator.url}`);
 console.log("Start a workflow with POST /workflows");
 

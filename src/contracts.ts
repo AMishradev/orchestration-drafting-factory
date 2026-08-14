@@ -37,11 +37,18 @@ export const ResearchResultSchema = z.object({
 
 export type ResearchResult = z.infer<typeof ResearchResultSchema>;
 
+export const DraftingInputSchema = z.object({
+  request: WorkflowRequestSchema,
+  research: ResearchResultSchema,
+});
+
+export type DraftingInput = z.infer<typeof DraftingInputSchema>;
+
 export const DraftResultSchema = z.object({
   revision: z.number().int().positive(),
   subject: z.string().min(1),
   body: z.string().min(1),
-  evidenceSignalIds: z.array(z.string()),
+  evidenceSignalIds: z.array(z.string()).min(1),
 });
 
 export type DraftResult = z.infer<typeof DraftResultSchema>;
@@ -120,6 +127,15 @@ export const RunnerEventSchema = z.discriminatedUnion("type", [
     sessionId: z.string(),
     stage: StageSchema,
     attempt: z.number().int().positive(),
+  }),
+  z.object({
+    type: z.literal("agent.progress"),
+    workflowId: z.string(),
+    runId: z.string(),
+    sessionId: z.string(),
+    stage: StageSchema,
+    attempt: z.number().int().positive(),
+    event: z.unknown(),
   }),
   z.object({
     type: z.literal("run.completed"),

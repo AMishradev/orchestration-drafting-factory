@@ -185,6 +185,11 @@ export class FactoryOrchestrator {
       return;
     }
 
+    if (event.type === "agent.progress") {
+      this.publish(workflow, "agent.progress", event);
+      return;
+    }
+
     if (event.type === "run.failed") {
       this.fail(workflow, event.error);
       return;
