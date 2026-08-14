@@ -123,12 +123,11 @@ Start a workflow:
 curl -X POST http://127.0.0.1:4100/workflows \
   -H 'Content-Type: application/json' \
   -d '{
-    "company": {"name": "Acme", "domain": "acme.example"},
+    "company": {"name": "innoGPT", "domain": "innogpt.de"},
     "prospect": {
-      "firstName": "Maya",
-      "lastName": "Rivera",
-      "email": "maya@acme.example",
-      "title": "VP of Sales"
+      "firstName": "Mike",
+      "lastName": "Koene",
+      "title": "Lead Developer"
     }
   }'
 ```
