@@ -66,6 +66,89 @@ describe("Pi RPC critic adapter", () => {
     });
   });
 
+  test("forces revision when a past date is presented as an upcoming meeting", () => {
+    const input = evaluationInput();
+    input.draft.body =
+      "Our councils are set to convene upon the 18th day of March, at the ninth bell of the morning.";
+
+    const verdict = enforceCriticPolicy(
+      input,
+      { decision: "approve", notes: ["Looks good."] },
+      new Date(2026, 7, 14),
+    );
+
+    expect(verdict).toEqual({
+      decision: "revise",
+      issues: [
+        {
+          code: "STALE_DATE_REFERENCE",
+          message:
+            'The email presents an already-passed date as upcoming: "the 18th day of March".',
+          instruction:
+            "Remove the stale date or replace it only with a current, verified next step. Do not invent a new meeting date.",
+          severity: "blocking",
+        },
+      ],
+    });
+  });
+
+  test("catches the exact March 18 at 9:00 AM wording", () => {
+    const input = evaluationInput();
+    input.draft.body =
+      "Our meeting is scheduled for March 18 at 9:00 AM PDT. I look forward to it.";
+
+    const verdict = enforceCriticPolicy(
+      input,
+      { decision: "approve", notes: [] },
+      new Date(2026, 7, 14),
+    );
+
+    expect(verdict).toMatchObject({
+      decision: "revise",
+      issues: [
+        {
+          code: "STALE_DATE_REFERENCE",
+          message:
+            'The email presents an already-passed date as upcoming: "March 18 at 9:00 AM PDT".',
+          severity: "blocking",
+        },
+      ],
+    });
+  });
+
+  test("allows past dates that are clearly framed as historical", () => {
+    const input = evaluationInput();
+    input.draft.body =
+      "We spoke on March 18, 2026 about connecting thy product to third-party apps.";
+
+    const verdict = enforceCriticPolicy(
+      input,
+      { decision: "approve", notes: ["Historical context is supported."] },
+      new Date(2026, 7, 14),
+    );
+
+    expect(verdict).toEqual({
+      decision: "approve",
+      notes: ["Historical context is supported."],
+    });
+  });
+
+  test("allows explicitly future meeting dates", () => {
+    const input = evaluationInput();
+    input.draft.body = "Our meeting is scheduled for March 18, 2027 at 9:00 AM PDT.";
+
+    const verdict = enforceCriticPolicy(
+      input,
+      { decision: "approve", notes: ["Future date is valid."] },
+      new Date(2026, 7, 14),
+    );
+
+    expect(verdict).toEqual({
+      decision: "approve",
+      notes: ["Future date is valid."],
+    });
+  });
+
   test("streams progress and reuses one critic session", async () => {
     const fixture = join(import.meta.dir, "fixtures", "fake-critic-pi.ts");
     agent = new PiRpcCriticAgent({

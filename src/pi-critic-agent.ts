@@ -33,12 +33,19 @@ export class PiRpcCriticAgent implements CriticAgent {
 
   async critique(args: CriticArgs): Promise<Verdict> {
     const input = EvaluationInputSchema.parse(args.input);
+    const now = new Date();
+    const policyDate = [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, "0"),
+      String(now.getDate()).padStart(2, "0"),
+    ].join("-");
     const prompt = [
       "You are the critic agent for a cold-email workflow.",
       "Evaluate the draft for clarity, concision, relevance, and evidentiary support.",
       "The whimsical medieval-knight voice is an intentional campaign requirement. Do not flag it as unprofessional or request that it be removed.",
       'Hard rule: the standalone word "fair" is forbidden in the subject and body, regardless of capitalization.',
       'If "fair" appears, return revise with issue code FORBIDDEN_WORD_FAIR and instruct drafting to remove or rewrite every occurrence.',
+      `Hard rule: today is ${policyDate}. If the draft presents an already-passed date as an upcoming meeting, call, or appointment, return revise with issue code STALE_DATE_REFERENCE. Historical wording such as "we spoke on [past date]" is allowed. Never invent a replacement date.`,
       "Treat factual claims as supported only when their signal IDs exist in the supplied research.",
       "Return only one valid JSON verdict using exactly one of these shapes:",
       '{"decision":"approve","notes":["..."]}',
@@ -51,7 +58,7 @@ export class PiRpcCriticAgent implements CriticAgent {
     ].join("\n");
 
     const verdict = await this.generate(args.sessionId, prompt, args.onProgress);
-    return enforceCriticPolicy(input, verdict);
+    return enforceCriticPolicy(input, verdict, now);
   }
 
   async abort(sessionId: string): Promise<void> {
