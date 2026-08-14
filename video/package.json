@@ -1,0 +1,20 @@
+{
+  "name": "outbound-factory-video",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "render:mp4": "remotion render src/index.ts OutboundFactory out/demo.mp4 --codec=h264 --crf=16",
+    "render:gif": "remotion render src/index.ts OutboundFactory out/demo.gif --codec=gif --every-nth-frame=2 --width=960",
+    "studio": "remotion studio src/index.ts"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.512",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "remotion": "4.0.512"
+  },
+  "devDependencies": {
+    "@types/react": "19.0.0",
+    "typescript": "^5.9.2"
+  }
+}

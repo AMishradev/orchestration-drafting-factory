@@ -1,5 +1,11 @@
 # Outbound Factory v0
 
+![Outbound Factory demo](docs/media/demo.gif)
+
+> A high-quality walkthrough of the full workflow — research signal discovery, the
+> drafting → review → critic feedback loop, and the final Slack delivery.
+> [Watch the MP4](docs/media/demo.mp4) · rebuild it with `cd video && npm install && npm run render:mp4`.
+
 A minimal Bun + TypeScript + Zod demonstration of an agent workflow with a real-time feedback loop:
 
 ```text

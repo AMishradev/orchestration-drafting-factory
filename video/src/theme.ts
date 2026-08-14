@@ -1,0 +1,31 @@
+export const theme = {
+  bg: "#0a0e1a",
+  bg2: "#0f1524",
+  panel: "#141b2e",
+  panelBorder: "rgba(255,255,255,0.08)",
+  text: "#e8ecf5",
+  textDim: "#8a96b0",
+  textFaint: "#5a6680",
+  accent: "#6ea8fe",
+  accentGlow: "rgba(110,168,254,0.45)",
+  green: "#4ade80",
+  greenGlow: "rgba(74,222,128,0.4)",
+  amber: "#fbbf24",
+  amberGlow: "rgba(251,191,36,0.4)",
+  red: "#f87171",
+  redGlow: "rgba(248,113,113,0.4)",
+  purple: "#a78bfa",
+  cyan: "#22d3ee",
+  mono: "'SF Mono', 'JetBrains Mono', 'Fira Code', ui-monospace, monospace",
+  sans: "'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif",
+};
+
+export const stageColors: Record<string, string> = {
+  research: theme.cyan,
+  drafting: theme.accent,
+  review: theme.purple,
+  critic: theme.amber,
+  "deep review": theme.purple,
+  send: theme.green,
+  sent: theme.green,
+};
