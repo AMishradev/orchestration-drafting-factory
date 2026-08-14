@@ -10,7 +10,7 @@ research → drafting → review → critic → deep review → send → sent
 
 The runner and orchestrator communicate over a persistent WebSocket. The runner defaults to deterministic mock agents, including a simulated send, so running the demo never posts to Slack, sends email, calls an LLM, or consumes API credits. The first draft intentionally includes an unsupported claim; review rejects it. The next draft uses the critic's forbidden word `fair`; critic rejects it. Both structured verdicts route back to the same drafting session.
 
-The drafting and critic roles can each use a real local Pi RPC process. Research can use six internal systems through Composio. The send agent can deliver the approved subject and body to Archit in a Slack DM through Composio. Review and deep review remain mocked in v0.
+The drafting and critic roles can each use a real local Pi RPC process. Research can use a persistent Pi planning session with a bounded Composio tool broker, so one source can discover an identity that the next source immediately reuses. The send agent can deliver the approved subject and body to Archit in a Slack DM through Composio. Review and deep review remain mocked in v0.
 
 ## Run it
 
@@ -40,24 +40,25 @@ To run with real Pi drafting and critic agents:
 bun run start:pi
 ```
 
-To run only the Composio research agent, only the real Slack send agent, or all currently implemented real agents:
+To run the legacy deterministic Composio fan-out, the new agentic research loop, only the real Slack send agent, or all currently implemented real agents:
 
 ```bash
 bun run start:composio:research
+bun run start:agentic:research
 bun run start:composio:send
 bun run start:agents
 ```
 
-`start:composio:send` and `start:agents` perform a real Slack write after approval. `bun run start` and `bun run demo` always use the simulated send agent.
+`start:agentic:research` uses real Pi and Composio research but keeps every downstream role and the send side effect mocked. `start:composio:send` and `start:agents` perform a real Slack write after approval. `bun run start` and `bun run demo` always use the simulated send agent.
 
-This internally starts a separate `pi --mode rpc` process for each active drafting and critic session. It uses Pi's existing credentials and default model, so real model usage may incur cost. To run only one Pi role:
+This internally starts a separate `pi --mode rpc` process for each active Pi-backed role. It uses Pi's existing credentials and default model, so real model usage may incur cost. To run only one drafting or critic role:
 
 ```bash
 bun run start:pi:drafting
 bun run start:pi:critic
 ```
 
-Generic provider and model settings apply to both roles:
+Generic provider and model settings apply to all Pi roles:
 
 ```bash
 PI_PROVIDER=openai PI_MODEL=MODEL_ID bun run start:pi
@@ -67,6 +68,7 @@ Role-specific settings override the generic values:
 
 ```bash
 PI_PROVIDER=anthropic \
+PI_RESEARCH_MODEL=RESEARCH_MODEL_ID \
 PI_DRAFTING_MODEL=DRAFT_MODEL_ID \
 PI_CRITIC_MODEL=CRITIC_MODEL_ID \
 PI_CRITIC_THINKING=high \
@@ -81,18 +83,18 @@ Confirm the active engine:
 curl http://127.0.0.1:4101/health
 ```
 
-The response reports `researchEngine`, `draftingEngine`, `criticEngine`, and `sendEngine`. With `bun run start:agents`, their values are `composio`, `pi-rpc`, `pi-rpc`, and `composio-slack`. Drafting prompts ask for a short whimsical email written like a medieval knight and require raw JSON matching `DraftResultSchema`.
+The response reports `researchEngine`, `draftingEngine`, `criticEngine`, and `sendEngine`. With `bun run start:agents`, their values are `pi-composio`, `pi-rpc`, `pi-rpc`, and `composio-slack`. Drafting prompts ask for a short whimsical email written like a medieval knight and require raw JSON matching `DraftResultSchema`.
 
 The critic returns a Zod-validated approve, revise, or reject verdict. The whimsical medieval-knight voice is an intentional campaign requirement, so generic `TONE_UNPROFESSIONAL` objections are ignored. It has a hard policy against the standalone word `fair`: any subject or body containing it is forced to `revise` with issue code `FORBIDDEN_WORD_FAIR`, even if Pi attempted to approve the draft.
 
 Pi progress events from both agents are forwarded over the runner WebSocket and exposed at the workflow SSE endpoint as `agent.progress` events. Once the critic's completed verdict passes validation and policy checks, a revise verdict is immediately sent to the same persistent drafting session and appears as `feedback.routed`.
 
-## Internal research with Composio
+## Agentic internal research with Pi and Composio
 
-Set `RESEARCH_ENGINE=composio` and provide the project key only through the ignored `.env` file or process environment:
+Set `RESEARCH_ENGINE=pi-composio` and provide the project key only through the ignored `.env` file or process environment:
 
 ```bash
-RESEARCH_ENGINE=composio \
+RESEARCH_ENGINE=pi-composio \
 COMPOSIO_API_KEY=YOUR_PROJECT_KEY \
 COMPOSIO_USER_ID=YOUR_CONNECTED_ACCOUNT_USER_ID \
 bun run start
@@ -102,26 +104,44 @@ The project API key authenticates and selects the Composio project; the project 
 
 If a user has multiple connected accounts for a toolkit, select one explicitly with `COMPOSIO_<SOURCE>_CONNECTED_ACCOUNT_ID` (for example, `COMPOSIO_GRANOLA_CONNECTED_ACCOUNT_ID`). Use the connected-account ID beginning with `ca_`, not the auth-config ID beginning with `ac_`.
 
-The research fan-out uses these read-only, dated tool definitions:
-
-| Source | Tool |
-| --- | --- |
-| Slack | `SLACK_SEARCH_MESSAGES` |
-| Granola | `GRANOLA_MCP_QUERY_GRANOLA_MEETINGS` |
-| Fireflies | `FIREFLIES_GET_TRANSCRIPTS` |
-| Salesforce | `SALESFORCE_EXECUTE_SOSL_SEARCH` |
-| PostHog | `POSTHOG_LIST_OR_DELETE_PERSONS_WITH_OPTIONAL_FILTERS` in list-only mode |
-| Metabase | `METABASE_CREATE_CARD_QUERY1`, which executes a saved card query |
-
-PostHog requires `COMPOSIO_POSTHOG_PROJECT_ID`. Metabase requires `COMPOSIO_METABASE_CARD_ID` for a read-only saved card; its template tags default to `person` and `company` and can be renamed with `COMPOSIO_METABASE_PERSON_TAG` and `COMPOSIO_METABASE_COMPANY_TAG`.
-
-Sources run concurrently and fail independently. Each useful result is reduced to a bounded signal and immediately emits `research.signal.available`; full raw connector responses are not stored in the workflow. The current partial set is visible under `researchSignals`, and the final normalized set is passed to every downstream stage as the research artifact. Other live events include:
+The Pi session is the planner, not the credential holder. It returns one Zod-validated decision at a time. A TypeScript broker checks that decision against a fixed read-only allowlist, constructs the dated Composio call, executes it, reduces the raw response to bounded evidence, and returns only that normalized observation to the same Pi session:
 
 ```text
-research.source.started
-research.source.completed
-research.source.failed
+Pi decision → Zod validation → read-only broker → Composio tool
+     ↑                                      ↓
+     └──── normalized signals + identities ┘
 ```
+
+That loop makes the research adaptive. For example, Slack can reveal `person@company.com`; the next Pi turn can use the exact email in PostHog; a later turn can use a bounded read-only HogQL aggregate to answer “how many company users exist?” The loop stops when Pi selects sufficient evidence, eight tool calls are consumed, or the four-minute research budget expires. Configure those hard limits with `PI_RESEARCH_MAX_TOOL_CALLS` and `PI_RESEARCH_TOTAL_TIMEOUT_MS`.
+
+The agentic broker currently exposes these semantic operations over inspected, dated tool definitions:
+
+| Semantic operation | Composio tool |
+| --- | --- |
+| `slack_search` | `SLACK_SEARCH_MESSAGES` |
+| `granola_search` | `GRANOLA_MCP_QUERY_GRANOLA_MEETINGS` |
+| `fireflies_search` | `FIREFLIES_GET_TRANSCRIPTS` |
+| `salesforce_search` | `SALESFORCE_EXECUTE_SOSL_SEARCH` with broker-built SOSL |
+| `posthog_people` | `POSTHOG_LIST_OR_DELETE_PERSONS_WITH_OPTIONAL_FILTERS` in list-only mode |
+| `posthog_hogql` | `POSTHOG_CREATE_QUERY_IN_PROJECT_BY_ID`, restricted to one read-only `SELECT`/`WITH` query |
+
+PostHog requires `COMPOSIO_POSTHOG_PROJECT_ID`. Its auth-config ID (`ac_...`) is not the PostHog project ID. The broker rejects mutation/DDL keywords, multiple statements, and SQL comments before any HogQL request reaches Composio. Pi never receives the Composio API key, connected-account credentials, or unrestricted tool access.
+
+Each useful result is reduced to a bounded signal and immediately emits `research.signal.available`; full raw connector responses are neither sent to Pi nor stored in the workflow. The current partial set is visible under `researchSignals`, and the final evidence selected by Pi is passed to every downstream stage as the research artifact. Live operational events include:
+
+```text
+research.strategy.created
+research.tool.started
+research.tool.completed
+research.tool.failed
+research.identity.discovered
+research.signal.available
+research.completed
+```
+
+These are operational events, not Pi's private reasoning. The `purpose` attached to a tool call is a short action label. Raw Pi events and chain-of-thought are not added to the research stream.
+
+The old fixed concurrent fan-out remains available as `RESEARCH_ENGINE=composio` / `bun run start:composio:research` for comparison. It supports Metabase saved-card queries as well, but it cannot feed an identity found by one concurrent source into another source during the same run.
 
 If no connected source returns a usable match, the workflow continues with a single signal containing only the prospect/company data supplied in the request.
 
@@ -203,8 +223,11 @@ curl -N http://127.0.0.1:4100/workflows/WORKFLOW_ID/events
 - `src/runner.ts`: WebSocket server and session registry.
 - `src/mock-agent.ts`: deterministic research, drafting, review, critic, and deep-review behavior.
 - `src/research-agent.ts`: research interface and mock implementation.
-- `src/composio-research-agent.ts`: concurrent source execution, progress streaming, failure isolation, and normalization.
-- `src/research-source-adapters.ts`: bounded read-only queries and source-specific result extraction.
+- `src/composio-research-agent.ts`: legacy concurrent source execution plus the shared Composio SDK executor.
+- `src/agentic-research-contracts.ts`: Zod schemas for Pi decisions, semantic tool requests, and normalized observations.
+- `src/agentic-research-tool-broker.ts`: tool allowlist, safe argument construction, HogQL guard, and result reduction.
+- `src/pi-composio-research-agent.ts`: persistent adaptive Pi loop, budgets, evidence selection, and progress streaming.
+- `src/research-source-adapters.ts`: source-specific normalization shared by deterministic and agentic research.
 - `src/drafting-agent.ts`: the drafting interface and mock implementation.
 - `src/critic-agent.ts`: critic interface, mock implementation, and deterministic critic policy.
 - `src/pi-command.ts`: shared role-aware Pi command configuration.
@@ -223,7 +246,7 @@ curl -N http://127.0.0.1:4100/workflows/WORKFLOW_ID/events
 - Orchestrator and runner start in the same OS process for easy local testing, though they still communicate over WebSocket.
 - There is one generic runner rather than one runner per VM.
 - No WebSocket reconnection or command redelivery yet.
-- Review and deep review remain mocked. Research, drafting, critic, and send are selected independently with `RESEARCH_ENGINE=mock|composio`, `DRAFTING_ENGINE=mock|pi`, `CRITIC_ENGINE=mock|pi`, and `SEND_ENGINE=mock|composio-slack`.
+- Review and deep review remain mocked. Research, drafting, critic, and send are selected independently with `RESEARCH_ENGINE=mock|composio|pi-composio`, `DRAFTING_ENGINE=mock|pi`, `CRITIC_ENGINE=mock|pi`, and `SEND_ENGINE=mock|composio-slack`.
 - The v0 delivery target is a Slack DM to Archit; it does not send the outbound email to the prospect yet.
 
 The next production step is to persist workflow checkpoints, commands, artifacts, and acknowledgements in Postgres, then deploy the same runner on separate exe.dev VMs.

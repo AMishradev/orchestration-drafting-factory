@@ -19,7 +19,7 @@ export type ResearchArgs = {
 };
 
 export interface ResearchAgent {
-  readonly kind: "mock" | "composio";
+  readonly kind: "mock" | "composio" | "pi-composio";
   research(args: ResearchArgs): Promise<ResearchResult>;
   abort(sessionId: string): Promise<void>;
   dispose(sessionId: string): Promise<void>;

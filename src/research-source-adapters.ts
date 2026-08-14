@@ -18,7 +18,7 @@ const toolVersions = {
   metabase: "20260615_00",
 } as const;
 
-type ExtractedRecord = { claim: string; sourceUrl?: string };
+export type ExtractedRecord = { claim: string; sourceUrl?: string };
 
 export function buildResearchSourcePlans(
   request: WorkflowRequest,
@@ -184,18 +184,13 @@ function plan(
       connectedAccountId,
     },
     extractSignals: (result) =>
-      extractor(result)
-        .slice(0, 5)
-        .map((record, index) =>
-          SignalSchema.parse({
-            id: `internal-${source}-${index + 1}`,
-            claim: normalizeText(record.claim, 600),
-            sourceUrl:
-              record.sourceUrl ?? `composio://${source}/${toolSlug}`,
-            confidence: sourceConfidence(source),
-            source,
-          }),
-        ),
+      signalsFromExtractedRecords({
+        source,
+        toolSlug,
+        records: extractor(result),
+        idPrefix: `internal-${source}`,
+        maxSignals: 5,
+      }),
   };
 }
 
@@ -212,7 +207,7 @@ function unavailablePlan(
   };
 }
 
-function extractSlack(result: unknown): ExtractedRecord[] {
+export function extractSlack(result: unknown): ExtractedRecord[] {
   return findArrayByKey(result, "matches").map((item) => {
     const record = asRecord(item);
     const channel = asRecord(record.channel);
@@ -232,7 +227,7 @@ function extractSlack(result: unknown): ExtractedRecord[] {
   }).filter(({ claim }) => Boolean(claim));
 }
 
-function extractGranola(result: unknown): ExtractedRecord[] {
+export function extractGranola(result: unknown): ExtractedRecord[] {
   const texts = [
     ...(typeof result === "string" ? [result] : []),
     ...["data", "text", "content", "output", "result"].flatMap((key) =>
@@ -245,7 +240,7 @@ function extractGranola(result: unknown): ExtractedRecord[] {
     .map((text) => ({ claim: `Granola meeting context — ${text}` }));
 }
 
-function extractFireflies(result: unknown): ExtractedRecord[] {
+export function extractFireflies(result: unknown): ExtractedRecord[] {
   return findArrayByKey(result, "transcripts").map((item) => {
     const record = asRecord(item);
     const summary = asRecord(record.summary);
@@ -261,7 +256,7 @@ function extractFireflies(result: unknown): ExtractedRecord[] {
   }).filter(({ claim }) => claim !== "Fireflies meeting — ");
 }
 
-function extractSalesforce(result: unknown): ExtractedRecord[] {
+export function extractSalesforce(result: unknown): ExtractedRecord[] {
   return findArrayByKey(result, "searchRecords").map((item) => {
     const record = asRecord(item);
     const attributes = asRecord(record.attributes);
@@ -285,7 +280,7 @@ function extractSalesforce(result: unknown): ExtractedRecord[] {
   });
 }
 
-function extractPosthog(result: unknown): ExtractedRecord[] {
+export function extractPosthog(result: unknown): ExtractedRecord[] {
   return findArrayByKey(result, "results").map((item) => {
     const record = asRecord(item);
     const properties = asRecord(record.properties);
@@ -308,6 +303,24 @@ function extractPosthog(result: unknown): ExtractedRecord[] {
         ? `posthog://person/${String(record.id)}`
         : undefined,
     };
+  });
+}
+
+export function extractPosthogHogql(result: unknown): ExtractedRecord[] {
+  const columns = findArrayByKey(result, "columns").map((column, index) =>
+    typeof column === "string" ? column : `column_${index + 1}`,
+  );
+  const rows = findArrayByKey(result, "results");
+
+  return rows.slice(0, 20).map((row) => {
+    const values = Array.isArray(row) ? row : [row];
+    const mapped = Object.fromEntries(
+      values.slice(0, 20).map((value, index) => [
+        columns[index] ?? `column_${index + 1}`,
+        sanitizeQueryValue(columns[index], value),
+      ]),
+    );
+    return { claim: `PostHog query result — ${JSON.stringify(mapped)}` };
   });
 }
 
@@ -338,6 +351,25 @@ function templateTag(name: string, value: string) {
   };
 }
 
+export function signalsFromExtractedRecords(args: {
+  source: InternalResearchSource;
+  toolSlug: string;
+  records: ExtractedRecord[];
+  idPrefix: string;
+  maxSignals: number;
+}): Signal[] {
+  return args.records.slice(0, args.maxSignals).map((record, index) =>
+    SignalSchema.parse({
+      id: `${args.idPrefix}-${index + 1}`,
+      claim: normalizeText(record.claim, 600),
+      sourceUrl:
+        record.sourceUrl ?? `composio://${args.source}/${args.toolSlug}`,
+      confidence: sourceConfidence(args.source),
+      source: args.source,
+    }),
+  );
+}
+
 function escapeSlack(value: string): string {
   return value.replace(/["\\]/g, " ").trim();
 }
@@ -355,6 +387,27 @@ function sourceConfidence(source: InternalResearchSource): number {
     posthog: 0.88,
     metabase: 0.84,
   }[source];
+}
+
+function sanitizeQueryValue(column: string | undefined, value: unknown): unknown {
+  if (column && /(api.?key|token|secret|password|credential)/i.test(column)) {
+    return "[REDACTED]";
+  }
+  if (typeof value === "string") {
+    return normalizeText(
+      value.replace(/\b(?:ak|sk|phc)_[A-Za-z0-9_-]{12,}\b/g, "[REDACTED]"),
+      300,
+    );
+  }
+  if (
+    value === null ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+  const serialized = JSON.stringify(value);
+  return serialized ? normalizeText(serialized, 300) : String(value);
 }
 
 function normalizeText(value: string, maxLength: number): string {

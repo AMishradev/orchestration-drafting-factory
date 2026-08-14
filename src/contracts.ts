@@ -64,6 +64,47 @@ export type ResearchInput = z.infer<typeof ResearchInputSchema>;
 
 export const ResearchProgressEventSchema = z.discriminatedUnion("type", [
   z.object({
+    type: z.literal("research.strategy.created"),
+    goal: z.string(),
+    availableTools: z.array(z.string()),
+    maxToolCalls: z.number().int().positive(),
+  }),
+  z.object({
+    type: z.literal("research.tool.started"),
+    callId: z.string(),
+    source: ResearchSourceSchema.exclude(["workflow_input"]),
+    tool: z.string(),
+    purpose: z.string(),
+  }),
+  z.object({
+    type: z.literal("research.tool.completed"),
+    callId: z.string(),
+    source: ResearchSourceSchema.exclude(["workflow_input"]),
+    tool: z.string(),
+    resultCount: z.number().int().nonnegative(),
+    signalCount: z.number().int().nonnegative(),
+    hasMore: z.boolean(),
+  }),
+  z.object({
+    type: z.literal("research.tool.failed"),
+    callId: z.string(),
+    source: ResearchSourceSchema.exclude(["workflow_input"]),
+    tool: z.string(),
+    error: z.string(),
+  }),
+  z.object({
+    type: z.literal("research.identity.discovered"),
+    identityType: z.enum(["email", "domain"]),
+    value: z.string(),
+    source: ResearchSourceSchema.exclude(["workflow_input"]),
+  }),
+  z.object({
+    type: z.literal("research.completed"),
+    toolCallCount: z.number().int().nonnegative(),
+    selectedSignalCount: z.number().int().positive(),
+    stopReason: z.enum(["agent_complete", "tool_budget", "time_budget"]),
+  }),
+  z.object({
     type: z.literal("research.source.started"),
     source: ResearchSourceSchema.exclude(["workflow_input"]),
     toolSlug: z.string(),

@@ -10,8 +10,9 @@
     "start:pi:drafting": "DRAFTING_ENGINE=pi bun src/main.ts",
     "start:pi:critic": "CRITIC_ENGINE=pi bun src/main.ts",
     "start:composio:research": "RESEARCH_ENGINE=composio bun src/main.ts",
+    "start:agentic:research": "RESEARCH_ENGINE=pi-composio DRAFTING_ENGINE=mock CRITIC_ENGINE=mock SEND_ENGINE=mock bun src/main.ts",
     "start:composio:send": "RESEARCH_ENGINE=mock DRAFTING_ENGINE=mock CRITIC_ENGINE=mock SEND_ENGINE=composio-slack bun src/main.ts",
-    "start:agents": "RESEARCH_ENGINE=composio DRAFTING_ENGINE=pi CRITIC_ENGINE=pi SEND_ENGINE=composio-slack bun src/main.ts",
+    "start:agents": "RESEARCH_ENGINE=pi-composio DRAFTING_ENGINE=pi CRITIC_ENGINE=pi SEND_ENGINE=composio-slack bun src/main.ts",
     "demo": "bun src/demo.ts",
     "test": "bun test"
   },

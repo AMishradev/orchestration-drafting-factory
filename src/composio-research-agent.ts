@@ -85,7 +85,7 @@ export class ComposioResearchAgent implements ResearchAgent {
             this.progress(args, {
               type: "research.source.failed",
               source: plan.source,
-              error: sanitizeError(error, this.config.apiKey),
+            error: sanitizeResearchError(error, this.config.apiKey),
             });
             return [];
           }
@@ -132,7 +132,7 @@ export class ComposioResearchAgent implements ResearchAgent {
   }
 }
 
-class ComposioSdkResearchExecutor implements ResearchToolExecutor {
+export class ComposioSdkResearchExecutor implements ResearchToolExecutor {
   private readonly client: Composio;
 
   constructor(private readonly config: ComposioResearchConfig) {
@@ -189,7 +189,7 @@ function dedupeSignals(signals: Signal[]): Signal[] {
   });
 }
 
-function sanitizeError(error: unknown, apiKey: string): string {
+export function sanitizeResearchError(error: unknown, apiKey: string): string {
   const details = [
     error instanceof Error ? error.message : String(error),
     ...collectErrorDetails(error),

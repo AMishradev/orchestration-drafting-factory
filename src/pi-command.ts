@@ -1,4 +1,4 @@
-export type PiAgentRole = "drafting" | "critic";
+export type PiAgentRole = "research" | "drafting" | "critic";
 
 export function defaultPiCommand(role: PiAgentRole, sessionId: string): string[] {
   const rolePrefix = role.toUpperCase();

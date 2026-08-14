@@ -22,6 +22,7 @@ import { MockAgentEngine } from "./mock-agent";
 import { PiRpcDraftingAgent } from "./pi-drafting-agent";
 import { PiRpcCriticAgent } from "./pi-critic-agent";
 import { ComposioResearchAgent } from "./composio-research-agent";
+import { PiComposioResearchAgent } from "./pi-composio-research-agent";
 import {
   MockResearchAgent,
   type ResearchAgent,
@@ -63,9 +64,16 @@ export function startRunnerServer(
   const engine = new MockAgentEngine();
   const researchAgent =
     options.researchAgent ??
-    (Bun.env.RESEARCH_ENGINE === "composio"
-      ? new ComposioResearchAgent()
-      : new MockResearchAgent(engine));
+    (Bun.env.RESEARCH_ENGINE === "pi-composio"
+      ? new PiComposioResearchAgent({
+          maxToolCalls: Number(Bun.env.PI_RESEARCH_MAX_TOOL_CALLS ?? 8),
+          totalTimeoutMs: Number(
+            Bun.env.PI_RESEARCH_TOTAL_TIMEOUT_MS ?? 240_000,
+          ),
+        })
+      : Bun.env.RESEARCH_ENGINE === "composio"
+        ? new ComposioResearchAgent()
+        : new MockResearchAgent(engine));
   const draftingAgent =
     options.draftingAgent ??
     (Bun.env.DRAFTING_ENGINE === "pi"
